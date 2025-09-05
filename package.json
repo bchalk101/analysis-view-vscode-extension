@@ -1,0 +1,142 @@
+{
+  "name": "analysis-view-playground",
+  "displayName": "Analysis View Playground",
+  "description": "Interactive playground for SQL and JavaScript development with AI assistance for data visualization",
+  "version": "0.1.0",
+  "publisher": "analysis-view-playground",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/analysis-view-playground.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/analysis-view-playground/issues"
+  },
+  "homepage": "https://github.com/your-username/analysis-view-playground#readme",
+  "keywords": [
+    "data-visualization",
+    "sql",
+    "plotly",
+    "ai-assistant",
+    "mcp",
+    "copilot",
+    "playground"
+  ],
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Data Science",
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:analysis-view-playground.openPlayground"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "analysis-view-playground.openPlayground",
+        "title": "Open Analysis View Playground"
+      },
+      {
+        "command": "analysis-view-playground.exportToMainApp",
+        "title": "Export to Main App"
+      },
+      {
+        "command": "analysis-view-playground.testMCPService",
+        "title": "Test MCP Service Connection"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "analysis-view-playground.openPlayground",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "analysis-view-playground.openPlayground"
+        },
+        {
+          "command": "analysis-view-playground.testMCPService"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "analysisViewPlayground",
+          "title": "Analysis View Playground",
+          "icon": "$(graph-line)"
+        }
+      ]
+    },
+    "views": {
+      "analysisViewPlayground": [
+        {
+          "id": "analysisViewConfig",
+          "name": "Chart Configuration",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Analysis View Playground",
+      "properties": {
+        "analysisViewPlayground.mcpServers": {
+          "type": "array",
+          "default": [],
+          "description": "MCP servers to use for data analysis. Configure your own MCP servers here.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Display name for the MCP server"
+              },
+              "command": {
+                "type": "string",
+                "description": "Command to run the MCP server"
+              },
+              "args": {
+                "type": "array",
+                "description": "Arguments for the MCP server command",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object",
+                "description": "Environment variables for the MCP server"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "24.x",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^8.x",
+    "@typescript-eslint/parser": "^8.x",
+    "eslint": "^8.28.0",
+    "typescript": "^4.9.4"
+  },
+  "dependencies": {
+    "@types/plotly.js": "^3.x",
+    "@vscode/prompt-tsx": "^0.4.0-alpha.5",
+    "plotly.js": "^3.x"
+  }
+}
