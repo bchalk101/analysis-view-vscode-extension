@@ -14,7 +14,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         sqlQuery: '',
         customCSS: '',
         customJS: '',
-        selectedModel: undefined
+        selectedModel: undefined,
+        selectedMcpServer: undefined
     };
     private _copilotIntegration: CopilotIntegration;
     private _currentChatHistory: vscode.LanguageModelChatMessage[] = [];
@@ -51,6 +52,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     break;
                 case 'getAvailableModels':
                     this._getAvailableModels();
+                    break;
+                case 'getAvailableMcpServers':
+                    this._getAvailableMcpServers();
                     break;
                 case 'toggleChatProgress':
                     this._view?.webview.postMessage({
@@ -147,6 +151,30 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         }
     }
 
+    private async _getAvailableMcpServers() {
+        try {
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            const mcpServers = await this._copilotIntegration.getAvailableMcpServers();
+
+            this._view?.webview.postMessage({
+                type: 'availableMcpServers',
+                servers: mcpServers
+            });
+
+            if (mcpServers.length === 0) {
+                vscode.window.showWarningMessage('No MCP servers available. Please ensure MCP services are configured and running.');
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to get available MCP servers: ${error}`);
+
+            this._view?.webview.postMessage({
+                type: 'availableMcpServers',
+                servers: []
+            });
+        }
+    }
+
     private async _generateAndExecute(description: string, retryCount: number = 0): Promise<void> {
         const maxRetries = 3;
         
@@ -169,6 +197,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 description,
                 this._config.datasetPath,
                 this._config.selectedModel,
+                this._config.selectedMcpServer,
                 this._currentChatHistory
             );
 
@@ -357,14 +386,15 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 } catch (parseError) {
                     console.error(parseError);
                     ErrorReportingService.logInfo(`Could not parse tool result as JSON: ${typedContent.value}`);
-                    if (typedContent.value.startsWith('Error') || typedContent.value.includes('Error exec')) {
-                        throw new Error(`MCP Reader Service error: ${typedContent.value}`);
-                    }
+                    resultData = typedContent.value;
                 }
             }
             let columnNames: string[] = [];
             if (Array.isArray(resultData) && resultData.length > 0 && typeof resultData[0] === 'object') {
                 columnNames = Object.keys(resultData[0]);
+            } else if (typeof resultData === 'string') {
+                columnNames = ['data'];
+                resultData = [{ data: resultData }];
             }
             return {
                 rows: resultData,
@@ -1088,6 +1118,20 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         <div class="model-hint">Optional: Select a specific model</div>
                     </div>
                     
+                    <div class="input-group model-select-container">
+                        <label for="mcpSelect">MCP Data Tools</label>
+                        <div class="custom-select" id="mcpSelect">
+                            <div class="custom-select-trigger" tabindex="0">
+                                <span class="custom-select-value">All available tools</span>
+                                <span class="custom-select-arrow">▼</span>
+                            </div>
+                            <div class="custom-select-options">
+                                <div class="custom-select-option selected" data-value="all">All available tools</div>
+                            </div>
+                        </div>
+                        <div class="model-hint">Optional: Select specific data analysis tools</div>
+                    </div>
+                    
                     <div class="button-group">
                         <button class="action-button generate-button" onclick="generate()">Generate Visualization</button>
                         <button class="action-button clear" onclick="clearAll()">Clear</button>
@@ -1156,6 +1200,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     document.getElementById('customJS').addEventListener('input', updateConfig);
                     
                     setupCustomSelect();
+                    setupMcpSelect();
                 }
                 
                 function setupCustomSelect() {
@@ -1230,17 +1275,94 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     });
                 }
                 
+                function setupMcpSelect() {
+                    const customSelect = document.getElementById('mcpSelect');
+                    const trigger = customSelect.querySelector('.custom-select-trigger');
+                    const options = customSelect.querySelector('.custom-select-options');
+                    let serversLoaded = false;
+                    
+                    const loadServers = () => {
+                        if (!serversLoaded) {
+                            const valueSpan = trigger.querySelector('.custom-select-value');
+                            valueSpan.textContent = 'Loading tools...';
+                            trigger.style.opacity = '0.6';
+                            vscode.postMessage({ type: 'getAvailableMcpServers' });
+                            serversLoaded = true;
+                        }
+                    };
+                    
+                    const toggleDropdown = () => {
+                        const isOpen = customSelect.classList.contains('open');
+                        
+                        // Close all dropdowns first
+                        document.querySelectorAll('.custom-select').forEach(select => {
+                            select.classList.remove('open');
+                        });
+                        
+                        if (!isOpen) {
+                            if (!serversLoaded) {
+                                loadServers();
+                            }
+                            customSelect.classList.add('open');
+                        }
+                    };
+                    
+                    trigger.addEventListener('click', toggleDropdown);
+                    trigger.addEventListener('keydown', (e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleDropdown();
+                        }
+                    });
+                    
+                    // Close dropdown when clicking outside
+                    document.addEventListener('click', (e) => {
+                        if (!customSelect.contains(e.target)) {
+                            customSelect.classList.remove('open');
+                        }
+                    });
+                    
+                    // Handle option selection
+                    options.addEventListener('click', (e) => {
+                        const option = e.target.closest('.custom-select-option');
+                        if (option && !option.classList.contains('loading')) {
+                            // Remove selected class from all options
+                            options.querySelectorAll('.custom-select-option').forEach(opt => {
+                                opt.classList.remove('selected');
+                            });
+                            
+                            // Add selected class to clicked option
+                            option.classList.add('selected');
+                            
+                            // Update trigger text
+                            const valueSpan = trigger.querySelector('.custom-select-value');
+                            valueSpan.textContent = option.textContent;
+                            
+                            // Close dropdown
+                            customSelect.classList.remove('open');
+                            
+                            // Update config
+                            updateConfig();
+                        }
+                    });
+                }
+                
                 function updateConfig() {
-                    const customSelect = document.getElementById('modelSelect');
-                    const selectedOption = customSelect.querySelector('.custom-select-option.selected');
-                    const selectedValue = selectedOption ? selectedOption.getAttribute('data-value') : '';
+                    const modelSelect = document.getElementById('modelSelect');
+                    const modelOption = modelSelect.querySelector('.custom-select-option.selected');
+                    const selectedModel = modelOption ? modelOption.getAttribute('data-value') : '';
+                    
+                    const mcpSelect = document.getElementById('mcpSelect');
+                    const mcpOption = mcpSelect.querySelector('.custom-select-option.selected');
+                    const selectedMcpServer = mcpOption ? mcpOption.getAttribute('data-value') : 'all';
                     
                     const config = {
                         description: document.getElementById('description').value,
                         datasetPath: document.getElementById('datasetPath').value,
                         sqlQuery: document.getElementById('sqlQuery').value,
                         customJS: document.getElementById('customJS').value,
-                        selectedModel: selectedValue || undefined
+                        selectedModel: selectedModel || undefined,
+                        selectedMcpServer: selectedMcpServer || 'all'
                     };
                     
                     vscode.postMessage({ type: 'configUpdate', config: config });
@@ -1483,6 +1605,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         case 'availableModels':
                             populateModels(message.models);
                             break;
+                        case 'availableMcpServers':
+                            populateMcpServers(message.servers);
+                            break;
                         case 'progress':
                             updateProgress(message.status, message.message);
                             break;
@@ -1545,6 +1670,50 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         option.textContent = model.name;
                         options.appendChild(option);
                     });
+                }
+                
+                function populateMcpServers(servers) {
+                    const customSelect = document.getElementById('mcpSelect');
+                    const trigger = customSelect.querySelector('.custom-select-trigger');
+                    const valueSpan = trigger.querySelector('.custom-select-value');
+                    const options = customSelect.querySelector('.custom-select-options');
+                    
+                    // Reset trigger appearance
+                    trigger.style.opacity = '1';
+                    valueSpan.textContent = 'All available tools';
+                    
+                    // Clear existing options
+                    options.innerHTML = '';
+                    
+                    // Add default "All Tools" option if servers exist
+                    if (servers.length > 0) {
+                        const allOption = servers.find(s => s.id === 'all');
+                        if (allOption) {
+                            const defaultOption = document.createElement('div');
+                            defaultOption.className = 'custom-select-option selected';
+                            defaultOption.setAttribute('data-value', 'all');
+                            defaultOption.textContent = \`\${allOption.name} (\${allOption.toolCount} tools)\`;
+                            options.appendChild(defaultOption);
+                        }
+                        
+                        // Add server options (excluding the "all" option we already added)
+                        servers.filter(s => s.id !== 'all').forEach(server => {
+                            const option = document.createElement('div');
+                            option.className = 'custom-select-option';
+                            option.setAttribute('data-value', server.id);
+                            option.textContent = \`\${server.name} (\${server.toolCount} tools)\`;
+                            option.title = server.description || '';
+                            options.appendChild(option);
+                        });
+                    } else {
+                        // Add no tools available option
+                        const noToolsOption = document.createElement('div');
+                        noToolsOption.className = 'custom-select-option selected';
+                        noToolsOption.setAttribute('data-value', '');
+                        noToolsOption.textContent = 'No tools available';
+                        noToolsOption.style.opacity = '0.6';
+                        options.appendChild(noToolsOption);
+                    }
                 }
                 
                 document.addEventListener('DOMContentLoaded', initializeInterface);

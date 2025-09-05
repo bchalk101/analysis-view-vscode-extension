@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ErrorReportingService } from './ValidationService';
-import { ChatProgressStep } from './types';
+import { ChatProgressStep, McpServerInfo } from './types';
 import {
   AnalysisGenerationPrompt,
   RetryPrompt,
@@ -123,6 +123,63 @@ export class CopilotIntegration {
     return [];
   }
 
+  async getAvailableMcpServers(): Promise<McpServerInfo[]> {
+    try {
+      const availableTools = vscode.lm ? vscode.lm.tools : [];
+      const mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
+      
+      const serverMap = new Map<string, McpServerInfo>();
+      
+      mcpTools.forEach(tool => {
+        const toolName = tool.name;
+        const parts = toolName.split('_');
+        let serverId = 'unknown';
+        let serverName = 'Unknown Server';
+        
+        if (parts.length >= 2 && parts[0] === 'mcp') {
+          serverId = parts[1];
+          serverName = serverId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        } else if (toolName.includes('mcp')) {
+          serverId = 'general-mcp';
+          serverName = 'General MCP Tools';
+        }
+        
+        if (!serverMap.has(serverId)) {
+          serverMap.set(serverId, {
+            id: serverId,
+            name: serverName,
+            description: `Tools from ${serverName}`,
+            toolCount: 0,
+            tools: []
+          });
+        }
+        
+        const serverInfo = serverMap.get(serverId)!;
+        serverInfo.toolCount++;
+        serverInfo.tools.push(toolName);
+      });
+      
+      if (mcpTools.length > 0) {
+        serverMap.set('all', {
+          id: 'all',
+          name: 'All Available Tools',
+          description: 'Use all available MCP tools',
+          toolCount: mcpTools.length,
+          tools: mcpTools.map(tool => tool.name)
+        });
+      }
+      
+      return Array.from(serverMap.values()).sort((a, b) => {
+        if (a.id === 'all') return -1;
+        if (b.id === 'all') return 1;
+        return a.name.localeCompare(b.name);
+      });
+    } catch (error) {
+      ErrorReportingService.logError(error as Error, 'get-available-mcp-servers');
+      return [];
+    }
+  }
+
   private getModel(models: vscode.LanguageModelChat[], selectedModelId?: string) {
     if (!models.length) return null;
     if (selectedModelId) return models.find(m => m.id === selectedModelId) || models[0];
@@ -240,6 +297,7 @@ export class CopilotIntegration {
     description: string,
     datasetPath: string = '',
     selectedModelId?: string,
+    selectedMcpServerId?: string,
     chatHistory: vscode.LanguageModelChatMessage[] = []
   ): Promise<GeneratedCodeWithProgress | null> {
     const chatProgress: ChatProgressStep[] = [];
@@ -267,7 +325,18 @@ export class CopilotIntegration {
       }
 
       const availableTools = vscode.lm ? vscode.lm.tools : [];
-      const mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
+      let mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
+      
+      if (selectedMcpServerId && selectedMcpServerId !== 'all') {
+        ErrorReportingService.logInfo(`Filtering MCP tools for server: ${selectedMcpServerId}`);
+        mcpTools = mcpTools.filter(tool => {
+          const parts = tool.name.split('_');
+          if (parts.length >= 2 && parts[0] === 'mcp') {
+            return parts[1] === selectedMcpServerId;
+          }
+          return selectedMcpServerId === 'general-mcp' && tool.name.includes('mcp');
+        });
+      }
 
       const { messages, prompt } = await this.buildPrompt(description, datasetPath, chatHistory, model);
       this.addProgressStep(chatProgress, { type: 'user', content: prompt });

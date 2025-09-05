@@ -10,6 +10,7 @@ export interface AnalysisViewConfig {
   customCSS: string;
   customJS: string;
   selectedModel?: string;
+  selectedMcpServer?: string;
   exportedAt?: string;
 }
 
@@ -45,8 +46,16 @@ export interface ChatProgressStep {
   error?: string;
 }
 
+export interface McpServerInfo {
+  id: string;
+  name: string;
+  description?: string;
+  toolCount: number;
+  tools: string[];
+}
+
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generate' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll';
+  type: 'configUpdate' | 'generate' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;
