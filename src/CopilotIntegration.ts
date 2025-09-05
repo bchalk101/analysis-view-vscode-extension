@@ -33,8 +33,12 @@ export interface ToolCallsMetadata {
 export class CopilotIntegration {
   constructor() { }
 
-  private addProgressStep(chatProgress: ChatProgressStep[], step: Omit<ChatProgressStep, 'timestamp'>) {
-    chatProgress.push({ ...step, timestamp: new Date().toISOString() });
+  private addProgressStep(chatProgress: ChatProgressStep[], step: Omit<ChatProgressStep, 'timestamp'>, onProgress?: (step: ChatProgressStep) => void) {
+    const progressStep = { ...step, timestamp: new Date().toISOString() };
+    chatProgress.push(progressStep);
+    if (onProgress) {
+      onProgress(progressStep);
+    }
   }
 
   private async accumulateTextFromStream(stream: AsyncIterable<any>) {
@@ -212,11 +216,34 @@ export class CopilotIntegration {
   private extractPromptText(messages: vscode.LanguageModelChatMessage[]): string {
     return messages
       .filter(msg => msg.role === vscode.LanguageModelChatMessageRole.User)
-      .map(msg => msg.content)
+      .map(msg => this.extractContentAsString(msg.content))
       .join('\n\n');
   }
 
-  private async handleToolCalls(toolCalls: vscode.LanguageModelToolCallPart[], chatProgress: ChatProgressStep[]) {
+  private extractContentAsString(content: any): string {
+    if (typeof content === 'string') {
+      return content;
+    } else if (Array.isArray(content)) {
+      return content
+        .filter(part => part instanceof vscode.LanguageModelTextPart)
+        .map(part => (part as vscode.LanguageModelTextPart).value)
+        .join('');
+    } else if (content && typeof content === 'object') {
+      if (content.value) {
+        return String(content.value);
+      } else if (content.text) {
+        return String(content.text);
+      } else if (content.content) {
+        return String(content.content);
+      } else {
+        return JSON.stringify(content);
+      }
+    } else {
+      return String(content || '');
+    }
+  }
+
+  private async handleToolCalls(toolCalls: vscode.LanguageModelToolCallPart[], chatProgress: ChatProgressStep[], onProgress?: (step: ChatProgressStep) => void) {
     const toolResults: Array<{ toolCall: vscode.LanguageModelToolCallPart, result: any }> = [];
     for (const toolCall of toolCalls) {
       try {
@@ -232,7 +259,7 @@ export class CopilotIntegration {
           content: `Tool result from ${toolCall.name}`,
           toolName: toolCall.name,
           toolOutput: resultText.length > 500 ? resultText.substring(0, 500) + '...' : resultText
-        });
+        }, onProgress);
       } catch (toolError) {
         ErrorReportingService.logError(toolError as Error, 'tool-execution');
         vscode.window.showWarningMessage(`Dataset exploration failed: ${toolError}`);
@@ -241,13 +268,13 @@ export class CopilotIntegration {
           content: `Tool execution failed`,
           toolName: toolCall.name,
           error: String(toolError)
-        });
+        }, onProgress);
       }
     }
     return toolResults;
   }
 
-  private async validateSQL(sql: string, datasetPath: string, description: string, chatProgress: ChatProgressStep[], model: vscode.LanguageModelChat) {
+  private async validateSQL(sql: string, datasetPath: string, description: string, chatProgress: ChatProgressStep[], model: vscode.LanguageModelChat, onProgress?: (step: ChatProgressStep) => void) {
     try {
       const result = await vscode.lm.invokeTool(
         'mcp_reader-servic_query_dataset',
@@ -266,14 +293,14 @@ export class CopilotIntegration {
         content: 'SQL query validation successful',
         toolName: 'mcp_reader-servic_query_dataset',
         toolOutput: this.safeJsonStringify(result).length > 500 ? this.safeJsonStringify(result).substring(0, 500) + '...' : this.safeJsonStringify(result)
-      });
+      }, onProgress);
       return null;
     } catch (sqlError) {
       this.addProgressStep(chatProgress, {
         type: 'error',
         content: 'SQL query validation failed',
         error: String(sqlError)
-      });
+      }, onProgress);
 
       const analysisProps: AnalysisGenerationProps = {
         description,
@@ -285,10 +312,10 @@ export class CopilotIntegration {
       const { messages } = await renderPrompt(AnalysisGenerationPrompt, analysisProps, endpoint, model);
       const prompt = this.extractPromptText(messages);
 
-      this.addProgressStep(chatProgress, { type: 'user', content: prompt });
+      this.addProgressStep(chatProgress, { type: 'user', content: prompt }, onProgress);
       const retryResponse = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
       const retryResponseText = await this.accumulateTextFromStream(retryResponse.stream);
-      this.addProgressStep(chatProgress, { type: 'assistant', content: retryResponseText });
+      this.addProgressStep(chatProgress, { type: 'assistant', content: retryResponseText }, onProgress);
       return this.parseResponse(retryResponseText);
     }
   }
@@ -298,7 +325,8 @@ export class CopilotIntegration {
     datasetPath: string = '',
     selectedModelId?: string,
     selectedMcpServerId?: string,
-    chatHistory: vscode.LanguageModelChatMessage[] = []
+    chatHistory: vscode.LanguageModelChatMessage[] = [],
+    onProgress?: (step: ChatProgressStep) => void
   ): Promise<GeneratedCodeWithProgress | null> {
     const chatProgress: ChatProgressStep[] = [];
     try {
@@ -339,7 +367,7 @@ export class CopilotIntegration {
       }
 
       const { messages, prompt } = await this.buildPrompt(description, datasetPath, chatHistory, model);
-      this.addProgressStep(chatProgress, { type: 'user', content: prompt });
+      this.addProgressStep(chatProgress, { type: 'user', content: prompt }, onProgress);
 
       const accumulatedToolResults: Record<string, vscode.LanguageModelToolResult> = {};
       const toolCallRounds: any[] = [];
@@ -374,7 +402,7 @@ export class CopilotIntegration {
               content: `Calling tool: ${part.name}`,
               toolName: part.name,
               toolInput: this.safeJsonStringify(part.input)
-            });
+            }, onProgress);
           }
         }
 
@@ -387,7 +415,7 @@ export class CopilotIntegration {
             toolCalls
           });
 
-          const toolResults = await this.handleToolCalls(toolCalls, chatProgress);
+          const toolResults = await this.handleToolCalls(toolCalls, chatProgress, onProgress);
           toolResults.forEach(({ toolCall, result }) => {
             accumulatedToolResults[toolCall.callId] = result;
           });
@@ -407,7 +435,7 @@ export class CopilotIntegration {
       };
 
       const finalText = await runWithTools();
-      this.addProgressStep(chatProgress, { type: 'assistant', content: finalText });
+      this.addProgressStep(chatProgress, { type: 'assistant', content: finalText }, onProgress);
 
       const parsedCode = this.parseResponse(finalText);
 
@@ -419,7 +447,7 @@ export class CopilotIntegration {
       };
 
       if (parsedCode.sql && datasetPath) {
-        const retryResult = await this.validateSQL(parsedCode.sql, datasetPath, description, chatProgress, model);
+        const retryResult = await this.validateSQL(parsedCode.sql, datasetPath, description, chatProgress, model, onProgress);
         if (retryResult) {
           return { ...retryResult, chatProgress, metadata };
         }
@@ -427,7 +455,7 @@ export class CopilotIntegration {
 
       return { ...parsedCode, chatProgress, metadata };
     } catch (error) {
-      this.addProgressStep(chatProgress, { type: 'error', content: 'Code generation failed', error: String(error) });
+      this.addProgressStep(chatProgress, { type: 'error', content: 'Code generation failed', error: String(error) }, onProgress);
       ErrorReportingService.logError(error as Error, 'code-generation-failure');
       vscode.window.showErrorMessage(`Code generation failed: ${error}`);
       return {

@@ -198,14 +198,21 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 this._config.datasetPath,
                 this._config.selectedModel,
                 this._config.selectedMcpServer,
-                this._currentChatHistory
+                this._currentChatHistory,
+                (step: ChatProgressStep) => {
+                    this._currentChatProgress.push(step);
+                    this._view?.webview.postMessage({
+                        type: 'chatProgressUpdated',
+                        chatProgress: this._currentChatProgress
+                    });
+                }
             );
 
             if (!generatedCode) {
                 throw new Error('Failed to generate code');
             }
 
-            this._currentChatProgress = generatedCode.chatProgress || [];
+            this._currentChatProgress = generatedCode.chatProgress || this._currentChatProgress;
 
             this._config.sqlQuery = generatedCode.sql;
             this._config.customJS = generatedCode.javascript;
@@ -1554,11 +1561,19 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         }
                         
                         let contentToShow = step.content || 'No content';
+                        
+                        // Ensure content is a string
+                        if (typeof contentToShow === 'object') {
+                            contentToShow = JSON.stringify(contentToShow, null, 2);
+                        } else {
+                            contentToShow = String(contentToShow);
+                        }
+                        
                         if (step.toolOutput) {
-                            contentToShow = step.toolOutput;
+                            contentToShow = String(step.toolOutput);
                         }
                         if (step.error) {
-                            contentToShow = step.error;
+                            contentToShow = String(step.error);
                         }
                         
                         // Escape HTML in content
