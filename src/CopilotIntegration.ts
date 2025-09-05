@@ -47,8 +47,56 @@ export class CopilotIntegration {
     return text;
   }
 
-  private formatToolResultContent(result: any) {
-    return result.content.map((c: any) => c.type === 'text' ? c.text : JSON.stringify(c)).join('\n');
+  private formatToolResultContent(result: vscode.LanguageModelToolResult) {
+    try {
+      if (!result || !result.content) {
+        return String(result || 'No content');
+      }
+
+      return result.content.map((c: any) => {
+        if (c.type === 'text') {
+          return c.text;
+        }
+        try {
+          return JSON.stringify(c);
+        } catch (jsonError) {
+          return String(c);
+        }
+      }).join('\n');
+    } catch (error) {
+      return String(result || 'Error formatting tool result');
+    }
+  }
+
+  private safeJsonStringify(obj: any): string {
+    try {
+      return JSON.stringify(obj);
+    } catch (error) {
+      try {
+        return JSON.stringify(obj, (key, value) => {
+          if (typeof value === 'function') {
+            return '[Function]';
+          }
+          if (typeof value === 'undefined') {
+            return '[Undefined]';
+          }
+          if (typeof value === 'symbol') {
+            return '[Symbol]';
+          }
+          if (value instanceof Error) {
+            return { name: value.name, message: value.message, stack: value.stack };
+          }
+          if (typeof value === 'object' && value !== null) {
+            if (value.constructor && value.constructor.name !== 'Object') {
+              return `[${value.constructor.name}]`;
+            }
+          }
+          return value;
+        });
+      } catch (fallbackError) {
+        return String(obj);
+      }
+    }
   }
 
   async getAvailableModels(): Promise<vscode.LanguageModelChat[]> {
@@ -83,7 +131,7 @@ export class CopilotIntegration {
 
   private async buildPrompt(description: string, datasetPath: string, chatHistory: vscode.LanguageModelChatMessage[], model: vscode.LanguageModelChat, toolCallRounds: any[] = [], toolResults?: Array<{ toolCall: vscode.LanguageModelToolCallPart; result: vscode.LanguageModelToolResult }>) {
     const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
-    
+
     if (chatHistory.length > 0) {
       const retryProps: RetryPromptProps = {
         description,
@@ -93,7 +141,7 @@ export class CopilotIntegration {
       const prompt = this.extractPromptText(messages);
       return { messages, prompt };
     }
-    
+
     const analysisProps: AnalysisGenerationProps = {
       description,
       datasetPath,
@@ -160,7 +208,7 @@ export class CopilotIntegration {
         type: 'tool_result',
         content: 'SQL query validation successful',
         toolName: 'mcp_reader-servic_query_dataset',
-        toolOutput: JSON.stringify(result).length > 500 ? JSON.stringify(result).substring(0, 500) + '...' : JSON.stringify(result)
+        toolOutput: this.safeJsonStringify(result).length > 500 ? this.safeJsonStringify(result).substring(0, 500) + '...' : this.safeJsonStringify(result)
       });
       return null;
     } catch (sqlError) {
@@ -201,7 +249,7 @@ export class CopilotIntegration {
         vscode.window.showWarningMessage('No chat models available. Please ensure GitHub Copilot is installed and authenticated.');
         return null;
       }
-      
+
       let model = this.getModel(models, selectedModelId);
       if (!model) {
         vscode.window.showWarningMessage('No valid chat model found.');
@@ -219,7 +267,7 @@ export class CopilotIntegration {
       }
 
       const availableTools = vscode.lm ? vscode.lm.tools : [];
-      const mcpTools = [...availableTools];
+      const mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
 
       const { messages, prompt } = await this.buildPrompt(description, datasetPath, chatHistory, model);
       this.addProgressStep(chatProgress, { type: 'user', content: prompt });
@@ -238,15 +286,15 @@ export class CopilotIntegration {
         };
 
         if (mcpTools.length > 0 && datasetPath && chatHistory.length === 0) {
-          options.tools = [...mcpTools].slice(0, 128);
+          options.tools = mcpTools.slice(0, 128);
           options.toolMode = vscode.LanguageModelChatToolMode.Auto;
         }
 
         const response = await model.sendRequest(finalMessages, options, new vscode.CancellationTokenSource().token);
-        
+
         let responseText = '';
         const toolCalls: vscode.LanguageModelToolCallPart[] = [];
-        
+
         for await (const part of response.stream) {
           if (part instanceof vscode.LanguageModelTextPart) {
             responseText += part.value;
@@ -256,7 +304,7 @@ export class CopilotIntegration {
               type: 'tool_call',
               content: `Calling tool: ${part.name}`,
               toolName: part.name,
-              toolInput: part.input
+              toolInput: this.safeJsonStringify(part.input)
             });
           }
         }
@@ -291,31 +339,31 @@ export class CopilotIntegration {
 
       const finalText = await runWithTools();
       this.addProgressStep(chatProgress, { type: 'assistant', content: finalText });
-      
+
       const parsedCode = this.parseResponse(finalText);
-      
+
       const metadata: AnalysisToolUserMetadata = {
         toolCallsMetadata: {
           toolCallRounds,
           toolCallResults: accumulatedToolResults
         }
       };
-      
+
       if (parsedCode.sql && datasetPath) {
         const retryResult = await this.validateSQL(parsedCode.sql, datasetPath, description, chatProgress, model);
         if (retryResult) {
           return { ...retryResult, chatProgress, metadata };
         }
       }
-      
+
       return { ...parsedCode, chatProgress, metadata };
     } catch (error) {
       this.addProgressStep(chatProgress, { type: 'error', content: 'Code generation failed', error: String(error) });
       ErrorReportingService.logError(error as Error, 'code-generation-failure');
       vscode.window.showErrorMessage(`Code generation failed: ${error}`);
-      return { 
-        sql: '', 
-        javascript: '', 
+      return {
+        sql: '',
+        javascript: '',
         chatProgress,
         metadata: {
           toolCallsMetadata: {
