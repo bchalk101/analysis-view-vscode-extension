@@ -1101,7 +1101,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     
                     <div class="input-group">
                         <label for="datasetPath">Dataset Path</label>
-                        <input type="text" id="datasetPath" placeholder="s3://bucket/path/to/dataset" />
+                        <input type="text" id="datasetPath" placeholder="Dataset Path" />
                         <div class="input-hint">Enter the S3 path to your dataset</div>
                     </div>
                     
@@ -1386,6 +1386,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     
                     if (!datasetPath) {
                         showValidationError('datasetPath', 'Please provide a dataset path.');
+                        return;
+                    }
+                    
+                    // Validate dataset path is not a placeholder
+                    if (datasetPath.includes('/path/to/') || datasetPath === 'Dataset Path') {
+                        showValidationError('datasetPath', 'Please provide a real dataset path, not a placeholder.');
                         return;
                     }
                     

@@ -131,15 +131,15 @@ export class CopilotIntegration {
     try {
       const availableTools = vscode.lm ? vscode.lm.tools : [];
       const mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
-      
+
       const serverMap = new Map<string, McpServerInfo>();
-      
+
       mcpTools.forEach(tool => {
         const toolName = tool.name;
         const parts = toolName.split('_');
         let serverId = 'unknown';
         let serverName = 'Unknown Server';
-        
+
         if (parts.length >= 2 && parts[0] === 'mcp') {
           serverId = parts[1];
           serverName = serverId.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -147,7 +147,7 @@ export class CopilotIntegration {
           serverId = 'general-mcp';
           serverName = 'General MCP Tools';
         }
-        
+
         if (!serverMap.has(serverId)) {
           serverMap.set(serverId, {
             id: serverId,
@@ -157,12 +157,12 @@ export class CopilotIntegration {
             tools: []
           });
         }
-        
+
         const serverInfo = serverMap.get(serverId)!;
         serverInfo.toolCount++;
         serverInfo.tools.push(toolName);
       });
-      
+
       if (mcpTools.length > 0) {
         serverMap.set('all', {
           id: 'all',
@@ -172,7 +172,7 @@ export class CopilotIntegration {
           tools: mcpTools.map(tool => tool.name)
         });
       }
-      
+
       return Array.from(serverMap.values()).sort((a, b) => {
         if (a.id === 'all') return -1;
         if (b.id === 'all') return 1;
@@ -247,6 +247,13 @@ export class CopilotIntegration {
     const toolResults: Array<{ toolCall: vscode.LanguageModelToolCallPart, result: any }> = [];
     for (const toolCall of toolCalls) {
       try {
+        this.addProgressStep(chatProgress, {
+          type: 'tool_call',
+          content: `Calling tool: ${toolCall.name}`,
+          toolName: toolCall.name,
+          toolInput: this.safeJsonStringify(toolCall.input)
+        }, onProgress);
+
         const toolResult = await vscode.lm.invokeTool(
           toolCall.name,
           { input: toolCall.input, toolInvocationToken: undefined },
@@ -354,7 +361,7 @@ export class CopilotIntegration {
 
       const availableTools = vscode.lm ? vscode.lm.tools : [];
       let mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
-      
+
       if (selectedMcpServerId && selectedMcpServerId !== 'all') {
         ErrorReportingService.logInfo(`Filtering MCP tools for server: ${selectedMcpServerId}`);
         mcpTools = mcpTools.filter(tool => {
@@ -368,6 +375,13 @@ export class CopilotIntegration {
 
       const { messages, prompt } = await this.buildPrompt(description, datasetPath, chatHistory, model);
       this.addProgressStep(chatProgress, { type: 'user', content: prompt }, onProgress);
+
+      if (datasetPath) {
+        this.addProgressStep(chatProgress, {
+          type: 'user',
+          content: `Using dataset path: ${datasetPath}`,
+        }, onProgress);
+      }
 
       const accumulatedToolResults: Record<string, vscode.LanguageModelToolResult> = {};
       const toolCallRounds: any[] = [];

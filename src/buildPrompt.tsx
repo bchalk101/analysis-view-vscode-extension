@@ -60,6 +60,7 @@ export class AnalysisGenerationPrompt extends PromptElement<AnalysisGenerationPr
 				{this.props.failedSql}<br />
 				```<br /><br />
 				**USER REQUEST:** {this.props.description}<br /><br />
+				**CRITICAL: The dataset path you must use is: "${this.props.datasetPath}"**
 				Generate corrected SQL and JavaScript:
 			</UserMessage>
 		);
@@ -84,6 +85,7 @@ export class AnalysisGenerationPrompt extends PromptElement<AnalysisGenerationPr
 				- JavaScript with Plotly.newPlot() call<br />
 				- Data format: {"{"}"column": [val1, val2], "column2": [val3, val4]{"}"}<br />
 				- Use real column names from dataset<br /><br />
+				**CRITICAL: The dataset path you must use is: "${this.props.datasetPath}"**
 				**USER REQUEST:** {this.props.description}
 				<br /><br />
                 If you need to generate new SQL or JavaScript, please do so.<br />
@@ -110,12 +112,11 @@ export class AnalysisGenerationPrompt extends PromptElement<AnalysisGenerationPr
 	private renderMainGenerationPrompt() {
 		const explorationInstructions = this.props.datasetPath
 			? `🔍 **STEP 1: MANDATORY DATASET EXPLORATION**
-You MUST first explore the actual dataset using the available MCP reader service tools:
+You MUST first explore the actual dataset using the available MCP reader service tools.
 
-1. **Get Dataset Schema**: Use mcp_reader-servic_get_dataset_metadata with dataset_path="${this.props.datasetPath}" to understand the structure
-2. **Query Sample Data**: Use mcp_reader-servic_query_dataset to get sample rows and understand the data format  
-3. **Get Row Counts**: Use mcp_reader-servic_count_dataset to understand dataset size
+**CRITICAL: The dataset path you must use is: "${this.props.datasetPath}"**
 
+Use this EXACT path in all tool calls.
 DO NOT generate any visualization code until you have explored the real dataset structure!`
 			: `📊 **Using Sample Data**: Generate code for sample computer vision dataset with typical CV columns.`;
 
