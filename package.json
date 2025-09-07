@@ -2,7 +2,7 @@
   "name": "analysis-view-playground",
   "displayName": "Analysis View Playground",
   "description": "Interactive playground for SQL and JavaScript development with AI assistance for data visualization",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "AgenticAnalytics",
   "license": "MIT",
   "repository": {
