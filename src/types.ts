@@ -55,7 +55,7 @@ export interface McpServerInfo {
 }
 
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generate' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll';
+  type: 'configUpdate' | 'generate' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;

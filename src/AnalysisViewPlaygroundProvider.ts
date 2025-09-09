@@ -20,6 +20,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
     private _copilotIntegration: CopilotIntegration;
     private _currentChatHistory: vscode.LanguageModelChatMessage[] = [];
     private _currentChatProgress: ChatProgressStep[] = [];
+    private _currentCancellationTokenSource?: vscode.CancellationTokenSource;
+    private _isGenerating: boolean = false;
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._copilotIntegration = new CopilotIntegration();
@@ -46,6 +48,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     break;
                 case 'generate':
                     this._generateAndExecute(data.description || this._config.description);
+                    break;
+                case 'cancelGeneration':
+                    this._cancelGeneration();
                     break;
                 case 'exportConfig':
                     this._exportConfiguration();
@@ -122,6 +127,26 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         this._exportConfiguration();
     }
 
+    private _cancelGeneration() {
+        if (this._currentCancellationTokenSource) {
+            this._currentCancellationTokenSource.cancel();
+            this._currentCancellationTokenSource.dispose();
+            this._currentCancellationTokenSource = undefined;
+        }
+        
+        this._isGenerating = false;
+        
+        this._view?.webview.postMessage({
+            type: 'progress',
+            status: 'cancelled',
+            message: 'Generation cancelled by user'
+        });
+        
+        this._view?.webview.postMessage({
+            type: 'generationCancelled'
+        });
+    }
+
     private async _getAvailableModels() {
         try {
             await new Promise(resolve => setTimeout(resolve, 100));
@@ -178,6 +203,15 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
     private async _generateAndExecute(description: string, retryCount: number = 0): Promise<void> {
         const maxRetries = 3;
         
+        // Cancel any existing generation
+        if (this._currentCancellationTokenSource) {
+            this._currentCancellationTokenSource.cancel();
+            this._currentCancellationTokenSource.dispose();
+        }
+        
+        this._currentCancellationTokenSource = new vscode.CancellationTokenSource();
+        this._isGenerating = true;
+        
         try {
             this._view?.webview.postMessage({
                 type: 'progress',
@@ -185,7 +219,15 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 message: retryCount > 0 ? `Retry ${retryCount}: Generating visualization...` : 'Generating visualization...'
             });
 
+            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
+                return;
+            }
+
             await new Promise(resolve => setTimeout(resolve, 800));
+
+            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
+                return;
+            }
 
             this._view?.webview.postMessage({
                 type: 'progress',
@@ -200,13 +242,19 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 this._config.selectedMcpServer,
                 this._currentChatHistory,
                 (step: ChatProgressStep) => {
-                    this._currentChatProgress.push(step);
-                    this._view?.webview.postMessage({
-                        type: 'chatProgressUpdated',
-                        chatProgress: this._currentChatProgress
-                    });
+                    if (!this._currentCancellationTokenSource?.token.isCancellationRequested) {
+                        this._currentChatProgress.push(step);
+                        this._view?.webview.postMessage({
+                            type: 'chatProgressUpdated',
+                            chatProgress: this._currentChatProgress
+                        });
+                    }
                 }
             );
+
+            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
+                return;
+            }
 
             if (!generatedCode) {
                 throw new Error('Failed to generate code');
@@ -237,12 +285,19 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             let sqlSuccess = false;
 
             try {
+                if (this._currentCancellationTokenSource.token.isCancellationRequested) {
+                    return;
+                }
+                
                 data = await this.executeSQLWithMCPReaderService(
                     this._config.sqlQuery,
                     this._config.datasetPath
                 );
                 sqlSuccess = true;
             } catch (error) {
+                if (this._currentCancellationTokenSource?.token.isCancellationRequested) {
+                    return;
+                }
                 if (retryCount < maxRetries) {
                     this._view?.webview.postMessage({
                         type: 'progress',
@@ -308,6 +363,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             }
 
         } catch (error) {
+            if (this._currentCancellationTokenSource?.token.isCancellationRequested) {
+                return;
+            }
             if (retryCount < maxRetries) {
                 this._view?.webview.postMessage({
                     type: 'progress',
@@ -328,6 +386,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 message: `Generation failed after ${maxRetries} attempts: ${error}`
             });
             vscode.window.showErrorMessage(`Generation failed: ${error}`);
+        } finally {
+            this._isGenerating = false;
+            if (this._currentCancellationTokenSource) {
+                this._currentCancellationTokenSource.dispose();
+                this._currentCancellationTokenSource = undefined;
+            }
         }
     }
 
@@ -370,7 +434,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     },
                     toolInvocationToken: undefined,
                 },
-                new vscode.CancellationTokenSource().token
+                this._currentCancellationTokenSource?.token || new vscode.CancellationTokenSource().token
             );
 
             let resultData: any = {};
@@ -721,6 +785,18 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     opacity: 1;
                     border-color: var(--vscode-button-border);
                     transform: none;
+                }
+                
+                .action-button.cancel-button {
+                    background-color: var(--vscode-button-secondaryBackground);
+                    color: var(--vscode-button-secondaryForeground);
+                    border: 1px solid var(--vscode-button-border);
+                }
+                
+                .action-button.cancel-button:hover:not(:disabled) {
+                    background-color: var(--vscode-button-secondaryHoverBackground);
+                    color: var(--vscode-errorForeground);
+                    border-color: var(--vscode-errorBorder);
                 }
                 
                 .loading-state::before {
@@ -1139,6 +1215,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     
                     <div class="button-group">
                         <button class="action-button generate-button" onclick="generate()">Generate Visualization</button>
+                        <button class="action-button cancel-button" onclick="cancelGeneration()" style="display: none;">Cancel</button>
                         <button class="action-button clear" onclick="clearAll()">Clear</button>
                     </div>
                     
@@ -1391,15 +1468,11 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         return;
                     }
                     
-                    const button = document.querySelector('.generate-button');
+                    setGeneratingState(true);
+                    
                     const progressContainer = document.getElementById('progressContainer');
                     const chatProgressToggle = document.getElementById('chatProgressToggle');
                     const chatProgressContainer = document.getElementById('chatProgressContainer');
-                    
-                    // Update button state
-                    button.disabled = true;
-                    button.classList.add('loading-state');
-                    button.innerHTML = 'Generating...';
                     
                     // Show progress
                     progressContainer.classList.add('visible');
@@ -1410,6 +1483,45 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     resetChatProgressToggle();
                     
                     vscode.postMessage({ type: 'generate', description: description });
+                }
+                
+                function cancelGeneration() {
+                    vscode.postMessage({ type: 'cancelGeneration' });
+                }
+                
+                function setGeneratingState(isGenerating) {
+                    const generateButton = document.querySelector('.generate-button');
+                    const cancelButton = document.querySelector('.cancel-button');
+                    const clearButton = document.querySelector('.clear');
+                    
+                    if (isGenerating) {
+                        // Update generate button
+                        generateButton.disabled = true;
+                        generateButton.classList.add('loading-state');
+                        generateButton.innerHTML = 'Generating...';
+                        generateButton.style.display = 'none';
+                        
+                        // Show cancel button
+                        cancelButton.style.display = 'flex';
+                        cancelButton.disabled = false;
+                        
+                        // Disable clear button during generation
+                        clearButton.disabled = true;
+                        clearButton.style.opacity = '0.5';
+                    } else {
+                        // Reset generate button
+                        generateButton.disabled = false;
+                        generateButton.classList.remove('loading-state');
+                        generateButton.innerHTML = 'Generate Visualization';
+                        generateButton.style.display = 'flex';
+                        
+                        // Hide cancel button
+                        cancelButton.style.display = 'none';
+                        
+                        // Re-enable clear button
+                        clearButton.disabled = false;
+                        clearButton.style.opacity = '1';
+                    }
                 }
                 
                 function showValidationError(fieldId, message) {
@@ -1517,10 +1629,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 }
                 
                 function resetGenerateButton() {
-                    const button = document.querySelector('.generate-button');
-                    button.disabled = false;
-                    button.classList.remove('loading-state');
-                    button.innerHTML = 'Generate Visualization';
+                    setGeneratingState(false);
                 }
                 
                 function clearChatProgress() {
@@ -1632,6 +1741,11 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         case 'chatProgressUpdated':
                             renderChatProgress(message.chatProgress);
                             break;
+                        case 'generationCancelled':
+                            setGeneratingState(false);
+                            const progressContainer = document.getElementById('progressContainer');
+                            progressContainer.classList.remove('visible');
+                            break;
                     }
                 });
                 
@@ -1656,6 +1770,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         setTimeout(() => {
                             resetGenerateButton();
                         }, 3000);
+                    } else if (status === 'cancelled') {
+                        setTimeout(() => {
+                            const progressContainer = document.getElementById('progressContainer');
+                            progressContainer.classList.remove('visible');
+                            resetGenerateButton();
+                        }, 1000);
                     }
                 }
                 
