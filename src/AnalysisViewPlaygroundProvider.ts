@@ -572,69 +572,63 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 }
                 
                 .container {
-                    padding: 16px;
+                    padding: 12px;
                     max-width: 100%;
                 }
                 
                 .section {
-                    margin-bottom: 24px;
+                    margin-bottom: 16px;
                     background-color: var(--vscode-editor-background);
                     border: 1px solid var(--vscode-panel-border);
-                    border-radius: 6px;
-                    padding: 16px;
+                    border-radius: 4px;
+                    padding: 12px;
                 }
                 
                 .section-header {
-                    font-size: 12px;
+                    font-size: 11px;
                     font-weight: 600;
                     color: var(--vscode-foreground);
-                    margin-bottom: 16px;
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
-                }
-                
-                .section-header::before {
-                    content: '';
-                    width: 3px;
-                    height: 16px;
-                    background-color: var(--vscode-textLink-foreground);
-                    border-radius: 2px;
+                    margin-bottom: 12px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    opacity: 0.8;
                 }
                 
                 .input-group {
-                    margin-bottom: 16px;
+                    margin-bottom: 12px;
                 }
                 
                 .input-group:last-child {
                     margin-bottom: 0;
                 }
                 
-                label {
-                    display: block;
-                    margin-bottom: 6px;
-                    font-size: 12px;
-                    color: var(--vscode-foreground);
-                    font-weight: 500;
+                .select-row {
+                    display: flex;
+                    gap: 8px;
                 }
                 
-                .input-hint {
+                .select-column {
+                    flex: 1;
+                }
+                
+                label {
+                    display: block;
+                    margin-bottom: 4px;
                     font-size: 11px;
-                    color: var(--vscode-descriptionForeground);
-                    margin-top: 4px;
-                    opacity: 0.8;
-                    line-height: 1.3;
+                    color: var(--vscode-foreground);
+                    font-weight: 500;
+                    opacity: 0.9;
                 }
                 
                 input, textarea, select {
                     width: 100%;
-                    padding: 8px 12px;
+                    padding: 6px 8px;
                     background-color: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
                     border: 1px solid var(--vscode-input-border);
-                    border-radius: 4px;
+                    border-radius: 3px;
                     font-family: var(--vscode-font-family);
-                    font-size: 12px;
+                    font-size: 11px;
                     box-sizing: border-box;
                     transition: all 0.15s ease;
                 }
@@ -647,13 +641,13 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 
                 textarea {
                     resize: vertical;
-                    min-height: 90px;
+                    min-height: 60px;
                     font-family: var(--vscode-editor-font-family);
-                    line-height: 1.5;
+                    line-height: 1.4;
                 }
                 
                 .code-textarea {
-                    min-height: 140px;
+                    min-height: 100px;
                     font-family: var(--vscode-editor-font-family);
                     font-size: 11px;
                     background-color: var(--vscode-editor-background);
@@ -663,8 +657,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 
                 .button-group {
                     display: flex;
-                    gap: 6px;
-                    margin-top: 12px;
+                    gap: 8px;
+                    margin-top: 16px;
                 }
                 
                 .action-button {
@@ -672,7 +666,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     background-color: var(--vscode-button-background);
                     color: var(--vscode-button-foreground);
                     border: none;
-                    padding: 6px 12px;
+                    padding: 8px 16px;
                     border-radius: 3px;
                     cursor: pointer;
                     font-family: var(--vscode-font-family);
@@ -682,7 +676,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    min-height: 26px;
+                    min-height: 28px;
                 }
                 
                 .action-button:hover:not(:disabled) {
@@ -777,7 +771,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     background-color: var(--vscode-input-background);
                     color: var(--vscode-input-foreground);
                     border: 1px solid var(--vscode-input-border);
-                    border-radius: 4px;
+                    border-radius: 3px;
                     font-family: var(--vscode-font-family);
                     font-size: 11px;
                     box-sizing: border-box;
@@ -785,7 +779,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    min-height: 28px;
+                    min-height: 24px;
+                }
+                
+                .custom-select.compact .custom-select-trigger {
+                    min-height: 26px;
+                    font-size: 10px;
                 }
                 
                 .custom-select-trigger:focus {
@@ -1097,46 +1096,45 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         <body>
             <div class="container">
                 <div class="section">
-                    <div class="section-header">Dataset & Visualization Goal</div>
+                    <div class="section-header">Configuration</div>
                     
                     <div class="input-group">
                         <label for="datasetPath">Dataset Path</label>
-                        <input type="text" id="datasetPath" placeholder="Dataset Path" />
-                        <div class="input-hint">Enter the S3 path to your dataset</div>
+                        <input type="text" id="datasetPath" placeholder="s3://bucket/path/to/dataset.csv" />
                     </div>
                     
                     <div class="input-group">
-                        <label for="description">What do you want to visualize?</label>
-                        <textarea id="description" placeholder="Describe your visualization goal in detail...&#10;&#10;Examples:&#10;• Show distribution of values by category&#10;• Create a time series chart of events&#10;• Display correlation between two variables"></textarea>
-                        <div class="input-hint">Be specific about the type of chart and data you want to explore</div>
+                        <label for="description">Visualization Goal</label>
+                        <textarea id="description" placeholder="Describe what you want to visualize..."></textarea>
                     </div>
                     
-                    <div class="input-group model-select-container">
-                        <label for="modelSelect">AI Model</label>
-                        <div class="custom-select" id="modelSelect">
-                            <div class="custom-select-trigger" tabindex="0">
-                                <span class="custom-select-value">Default model</span>
-                                <span class="custom-select-arrow">▼</span>
+                    <div class="input-group">
+                        <div class="select-row">
+                            <div class="select-column">
+                                <label for="modelSelect">Model</label>
+                                <div class="custom-select compact" id="modelSelect">
+                                    <div class="custom-select-trigger" tabindex="0">
+                                        <span class="custom-select-value">Default</span>
+                                        <span class="custom-select-arrow">▼</span>
+                                    </div>
+                                    <div class="custom-select-options">
+                                        <div class="custom-select-option selected" data-value="">Default</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="custom-select-options">
-                                <div class="custom-select-option selected" data-value="">Default model</div>
+                            <div class="select-column">
+                                <label for="mcpSelect">Tools</label>
+                                <div class="custom-select compact" id="mcpSelect">
+                                    <div class="custom-select-trigger" tabindex="0">
+                                        <span class="custom-select-value">All available</span>
+                                        <span class="custom-select-arrow">▼</span>
+                                    </div>
+                                    <div class="custom-select-options">
+                                        <div class="custom-select-option selected" data-value="all">All available</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="model-hint">Optional: Select a specific model</div>
-                    </div>
-                    
-                    <div class="input-group model-select-container">
-                        <label for="mcpSelect">MCP Data Tools</label>
-                        <div class="custom-select" id="mcpSelect">
-                            <div class="custom-select-trigger" tabindex="0">
-                                <span class="custom-select-value">All available tools</span>
-                                <span class="custom-select-arrow">▼</span>
-                            </div>
-                            <div class="custom-select-options">
-                                <div class="custom-select-option selected" data-value="all">All available tools</div>
-                            </div>
-                        </div>
-                        <div class="model-hint">Optional: Select specific data analysis tools</div>
                     </div>
                     
                     <div class="button-group">
@@ -1173,18 +1171,16 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 </div>
                 
                 <div class="section">
-                    <div class="section-header">Generated Code</div>
+                    <div class="section-header">Output</div>
                     
                     <div class="input-group">
-                        <label for="sqlQuery">SQL Query</label>
+                        <label for="sqlQuery">SQL</label>
                         <textarea id="sqlQuery" class="code-textarea" readonly placeholder="Generated SQL query will appear here..."></textarea>
-                        <div class="input-hint">This query will be executed against your dataset</div>
                     </div>
                     
                     <div class="input-group">
-                        <label for="customJS">JavaScript (Plotly)</label>
+                        <label for="customJS">JavaScript</label>
                         <textarea id="customJS" class="code-textarea" placeholder="Generated visualization code will appear here..."></textarea>
-                        <div class="input-hint">Plotly.js code for rendering the visualization</div>
                     </div>
                     
                     <div class="button-group">
@@ -1671,7 +1667,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     
                     // Reset trigger appearance
                     trigger.style.opacity = '1';
-                    valueSpan.textContent = 'Default model';
+                    valueSpan.textContent = 'Default';
                     
                     // Clear existing options
                     options.innerHTML = '';
@@ -1680,7 +1676,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     const defaultOption = document.createElement('div');
                     defaultOption.className = 'custom-select-option selected';
                     defaultOption.setAttribute('data-value', '');
-                    defaultOption.textContent = 'Default model';
+                    defaultOption.textContent = 'Default';
                     options.appendChild(defaultOption);
                     
                     // Add model options
@@ -1701,7 +1697,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     
                     // Reset trigger appearance
                     trigger.style.opacity = '1';
-                    valueSpan.textContent = 'All available tools';
+                    valueSpan.textContent = 'All available';
                     
                     // Clear existing options
                     options.innerHTML = '';
@@ -1713,7 +1709,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                             const defaultOption = document.createElement('div');
                             defaultOption.className = 'custom-select-option selected';
                             defaultOption.setAttribute('data-value', 'all');
-                            defaultOption.textContent = \`\${allOption.name} (\${allOption.toolCount} tools)\`;
+                            defaultOption.textContent = \`All (\${allOption.toolCount})\`;
                             options.appendChild(defaultOption);
                         }
                         
@@ -1722,7 +1718,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                             const option = document.createElement('div');
                             option.className = 'custom-select-option';
                             option.setAttribute('data-value', server.id);
-                            option.textContent = \`\${server.name} (\${server.toolCount} tools)\`;
+                            option.textContent = \`\${server.name} (\${server.toolCount})\`;
                             option.title = server.description || '';
                             options.appendChild(option);
                         });
