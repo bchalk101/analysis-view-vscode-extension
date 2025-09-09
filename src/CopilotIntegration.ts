@@ -31,6 +31,10 @@ export interface ToolCallsMetadata {
 }
 
 export class CopilotIntegration {
+  private static readonly MAX_TOOL_CALL_ROUNDS = 5;
+  private static readonly MAX_TOOL_CALLS_PER_ROUND = 10;
+  private static readonly MAX_TOTAL_TOOL_CALLS = 20;
+
   constructor() { }
 
   private addProgressStep(chatProgress: ChatProgressStep[], step: Omit<ChatProgressStep, 'timestamp'>, onProgress?: (step: ChatProgressStep) => void) {
@@ -243,7 +247,68 @@ export class CopilotIntegration {
     }
   }
 
-  private async handleToolCalls(toolCalls: vscode.LanguageModelToolCallPart[], chatProgress: ChatProgressStep[], onProgress?: (step: ChatProgressStep) => void) {
+  private validateToolInputs(toolCalls: vscode.LanguageModelToolCallPart[], expectedDatasetPath: string) {
+    toolCalls.forEach(toolCall => {
+      if (toolCall.input && typeof toolCall.input === 'object') {
+        const input = toolCall.input as any;
+        if (input.datasets && Array.isArray(input.datasets)) {
+          input.datasets.forEach((dataset: any) => {
+            if (dataset.path && dataset.path !== expectedDatasetPath) {
+              ErrorReportingService.logInfo(`Correcting dataset path from "${dataset.path}" to "${expectedDatasetPath}"`);
+              dataset.path = expectedDatasetPath;
+            }
+          });
+        }
+      }
+    });
+  }
+
+  private shouldTerminateToolCalls(
+    currentToolResults: Array<{ toolCall: vscode.LanguageModelToolCallPart, result: any }>,
+    allToolCallRounds: any[],
+    totalToolCallCount: number,
+    chatProgress: ChatProgressStep[],
+    onProgress?: (step: ChatProgressStep) => void
+  ): boolean {
+    if (allToolCallRounds.length >= CopilotIntegration.MAX_TOOL_CALL_ROUNDS - 1) {
+      ErrorReportingService.logInfo('Approaching max tool call rounds, terminating early');
+      return true;
+    }
+
+    if (totalToolCallCount >= CopilotIntegration.MAX_TOTAL_TOOL_CALLS - 3) {
+      ErrorReportingService.logInfo('Approaching total tool call limit, terminating early');
+      return true;
+    }
+   
+    const currentToolCallSignatures = currentToolResults.map(tr => 
+      `${tr.toolCall.name}:${this.safeJsonStringify(tr.toolCall.input)}`
+    );
+
+    const allPreviousSignatures = allToolCallRounds.slice(0, -1).flatMap(round => 
+      round.toolCalls.map((tc: any) => `${tc.name}:${this.safeJsonStringify(tc.input)}`)
+    );
+
+    const repeatedCalls = currentToolCallSignatures.filter(sig => 
+      allPreviousSignatures.includes(sig)
+    );
+
+    if (repeatedCalls.length > 0) {
+      ErrorReportingService.logInfo(`Detected repeated tool calls: ${repeatedCalls.join(', ')}`);
+      this.addProgressStep(chatProgress, {
+        type: 'error',
+        content: `Detected repeated tool calls, terminating to prevent loops.`,
+      }, onProgress);
+      return true;
+    }
+
+    return false;
+  }
+
+  private async handleToolCalls(toolCalls: vscode.LanguageModelToolCallPart[], datasetPath: string, chatProgress: ChatProgressStep[], onProgress?: (step: ChatProgressStep) => void) {
+    if (datasetPath) {
+      this.validateToolInputs(toolCalls, datasetPath);
+    }
+
     const toolResults: Array<{ toolCall: vscode.LanguageModelToolCallPart, result: any }> = [];
     for (const toolCall of toolCalls) {
       try {
@@ -311,6 +376,7 @@ export class CopilotIntegration {
 
       const analysisProps: AnalysisGenerationProps = {
         description,
+        datasetPath,
         isRetry: true,
         failedSql: sql,
         sqlError: String(sqlError)
@@ -359,6 +425,15 @@ export class CopilotIntegration {
         }
       }
 
+      // Warn about models known for excessive tool usage
+      if (model.family.includes('claude') || model.id.includes('claude')) {
+        this.addProgressStep(chatProgress, {
+          type: 'user',
+          content: `Using Claude model - applying enhanced tool call limits to prevent infinite loops.`,
+        }, onProgress);
+        ErrorReportingService.logInfo(`Claude model detected (${model.id}), enhanced loop prevention active`);
+      }
+
       const availableTools = vscode.lm ? vscode.lm.tools : [];
       let mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
 
@@ -386,10 +461,21 @@ export class CopilotIntegration {
       const accumulatedToolResults: Record<string, vscode.LanguageModelToolResult> = {};
       const toolCallRounds: any[] = [];
       let finalMessages = messages;
+      let totalToolCallCount = 0;
 
       const runWithTools = async (): Promise<string> => {
         if (!model) {
           throw new Error('No valid model available');
+        }
+
+        // Check tool call round limits
+        if (toolCallRounds.length >= CopilotIntegration.MAX_TOOL_CALL_ROUNDS) {
+          this.addProgressStep(chatProgress, {
+            type: 'error',
+            content: `Maximum tool call rounds reached (${CopilotIntegration.MAX_TOOL_CALL_ROUNDS}). Stopping to prevent infinite loop.`,
+          }, onProgress);
+          ErrorReportingService.logInfo(`Tool call limit reached: ${toolCallRounds.length} rounds, ${totalToolCallCount} total calls`);
+          return 'Tool call limit reached. Please review the results above or try with a simpler request.';
         }
 
         const options: vscode.LanguageModelChatRequestOptions = {
@@ -420,22 +506,63 @@ export class CopilotIntegration {
           }
         }
 
-        ErrorReportingService.logInfo(`Tool calls made: ${toolCalls.length}`);
+        ErrorReportingService.logInfo(`Tool calls made: ${toolCalls.length} (Round ${toolCallRounds.length + 1}, Total: ${totalToolCallCount})`);
         ErrorReportingService.logInfo(`Response text length: ${responseText.length}`);
 
+        // Check tool call limits before processing
+        if (toolCalls.length > CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND) {
+          this.addProgressStep(chatProgress, {
+            type: 'error',
+            content: `Too many tool calls in single round (${toolCalls.length} > ${CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND}). Processing only first ${CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND}.`,
+          }, onProgress);
+          toolCalls.splice(CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND);
+        }
+
+        if (totalToolCallCount + toolCalls.length > CopilotIntegration.MAX_TOTAL_TOOL_CALLS) {
+          const allowedCalls = CopilotIntegration.MAX_TOTAL_TOOL_CALLS - totalToolCallCount;
+          this.addProgressStep(chatProgress, {
+            type: 'error',
+            content: `Total tool call limit would be exceeded. Processing only ${allowedCalls} of ${toolCalls.length} tool calls.`,
+          }, onProgress);
+          toolCalls.splice(allowedCalls);
+        }
+
         if (toolCalls.length > 0) {
+          totalToolCallCount += toolCalls.length;
+          
           toolCallRounds.push({
             response: responseText,
             toolCalls
           });
 
-          const toolResults = await this.handleToolCalls(toolCalls, chatProgress, onProgress);
+          const toolResults = await this.handleToolCalls(toolCalls, datasetPath, chatProgress, onProgress);
           toolResults.forEach(({ toolCall, result }) => {
             accumulatedToolResults[toolCall.callId] = result;
           });
 
+          // Check if we should continue based on tool results and current state
+          if (this.shouldTerminateToolCalls(toolResults, toolCallRounds, totalToolCallCount, chatProgress, onProgress)) {
+            this.addProgressStep(chatProgress, {
+              type: 'user',
+              content: 'Sufficient data gathered from tools. Proceeding with analysis generation.',
+            }, onProgress);
+            
+            // Generate final response with gathered data
+            const analysisProps: AnalysisGenerationProps = {
+              description,
+              datasetPath,
+              toolResults
+            };
+            const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
+            const result = await renderPrompt(AnalysisGenerationPrompt, analysisProps, endpoint, model);
+            
+            const finalResponse = await model.sendRequest(result.messages, {}, new vscode.CancellationTokenSource().token);
+            return await this.accumulateTextFromStream(finalResponse.stream);
+          }
+
           const analysisProps: AnalysisGenerationProps = {
             description,
+            datasetPath,
             toolResults
           };
           const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
@@ -450,6 +577,15 @@ export class CopilotIntegration {
 
       const finalText = await runWithTools();
       this.addProgressStep(chatProgress, { type: 'assistant', content: finalText }, onProgress);
+      
+      // Log final statistics
+      ErrorReportingService.logInfo(`Code generation completed - Total rounds: ${toolCallRounds.length}, Total tool calls: ${totalToolCallCount}`);
+      if (totalToolCallCount > 10) {
+        this.addProgressStep(chatProgress, {
+          type: 'user',
+          content: `Note: This request used ${totalToolCallCount} tool calls across ${toolCallRounds.length} rounds. Consider simplifying future requests for faster processing.`,
+        }, onProgress);
+      }
 
       const parsedCode = this.parseResponse(finalText);
 

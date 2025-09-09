@@ -60,7 +60,9 @@ export class AnalysisGenerationPrompt extends PromptElement<AnalysisGenerationPr
 				{this.props.failedSql}<br />
 				```<br /><br />
 				**USER REQUEST:** {this.props.description}<br /><br />
-				**CRITICAL: The dataset path you must use is: "${this.props.datasetPath}"**
+				{this.props.datasetPath && (
+					<>**CRITICAL: The dataset path you must use is: "{this.props.datasetPath}"**<br /></>
+				)}
 				Generate corrected SQL and JavaScript:
 			</UserMessage>
 		);
@@ -85,7 +87,9 @@ export class AnalysisGenerationPrompt extends PromptElement<AnalysisGenerationPr
 				- JavaScript with Plotly.newPlot() call<br />
 				- Data format: {"{"}"column": [val1, val2], "column2": [val3, val4]{"}"}<br />
 				- Use real column names from dataset<br /><br />
-				**CRITICAL: The dataset path you must use is: "${this.props.datasetPath}"**
+				{this.props.datasetPath && (
+					<>**CRITICAL: The dataset path you must use is: "{this.props.datasetPath}"**<br /></>
+				)}
 				**USER REQUEST:** {this.props.description}
 				<br /><br />
                 If you need to generate new SQL or JavaScript, please do so.<br />
