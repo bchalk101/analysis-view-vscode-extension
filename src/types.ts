@@ -54,9 +54,40 @@ export interface McpServerInfo {
   tools: string[];
 }
 
+export interface StoryStep {
+  id: string;
+  title: string;
+  description: string;
+  insight: string;
+  sqlQuery: string;
+  jsCode: string;
+  visualizationType: 'bar' | 'scatter' | 'pie' | 'line' | 'heatmap' | 'histogram' | 'box' | 'treemap';
+  order: number;
+}
+
+export interface DataStory {
+  id: string;
+  title: string;
+  description: string;
+  steps: StoryStep[];
+  createdAt: string;
+  datasetPath: string;
+}
+
+export interface StoryState {
+  currentStory?: DataStory;
+  currentStepIndex: number;
+  isStoryMode: boolean;
+}
+
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generate' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration';
+  type: 'configUpdate' | 'generate' | 'generateStory' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'toggleStoryMode';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;
+  storyNavigation?: {
+    direction: 'next' | 'previous' | 'jump';
+    stepIndex?: number;
+  };
+  storyMode?: boolean;
 }

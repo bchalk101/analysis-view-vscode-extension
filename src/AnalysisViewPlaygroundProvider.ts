@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep } from './types';
+import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, DataStory, StoryState } from './types';
 import { CopilotIntegration } from './CopilotIntegration';
 import { ErrorReportingService } from './ValidationService';
 
@@ -22,6 +22,10 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
     private _currentChatProgress: ChatProgressStep[] = [];
     private _currentCancellationTokenSource?: vscode.CancellationTokenSource;
     private _isGenerating: boolean = false;
+    private _storyState: StoryState = {
+        currentStepIndex: 0,
+        isStoryMode: false
+    };
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._copilotIntegration = new CopilotIntegration();
@@ -46,8 +50,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 case 'configUpdate':
                     this._config = { ...this._config, ...data.config };
                     break;
-                case 'generate':
-                    this._generateAndExecute(data.description || this._config.description);
+                case 'generateStory':
+                    this._generateStory(data.description || this._config.description);
                     break;
                 case 'cancelGeneration':
                     this._cancelGeneration();
@@ -81,6 +85,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     this._config.description = '';
                     this._currentChatProgress = [];
                     this._currentChatHistory = [];
+                    this._storyState = { currentStepIndex: 0, isStoryMode: false };
                     this._view?.webview.postMessage({
                         type: 'configCleared',
                         config: this._config
@@ -89,6 +94,16 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         type: 'chatProgress',
                         chatProgress: this._currentChatProgress
                     });
+                    this._view?.webview.postMessage({
+                        type: 'storyStateUpdated',
+                        storyState: this._storyState
+                    });
+                    break;
+                case 'navigateStory':
+                    this._navigateStory(data.storyNavigation!);
+                    break;
+                case 'toggleStoryMode':
+                    this._toggleStoryMode(data.storyMode || false);
                     break;
             }
         });
@@ -416,6 +431,164 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         }
     }
 
+    private async _generateStory(description: string): Promise<void> {
+        this._currentCancellationTokenSource = new vscode.CancellationTokenSource();
+        this._isGenerating = true;
+        
+        try {
+            this._view?.webview.postMessage({
+                type: 'progress',
+                status: 'started',
+                message: 'Generating data story...'
+            });
+
+            console.log(`Starting story generation for: "${description}"`);
+            console.log(`Dataset path: "${this._config.datasetPath}"`);
+
+            const generatedStory = await this._copilotIntegration.generateStoryWithLanguageModel(
+                description,
+                this._config.datasetPath,
+                this._config.selectedModel,
+                this._config.selectedMcpServer,
+                this._currentChatHistory,
+                (step: ChatProgressStep) => {
+                    if (!this._currentCancellationTokenSource?.token.isCancellationRequested) {
+                        this._currentChatProgress.push(step);
+                        this._view?.webview.postMessage({
+                            type: 'chatProgressUpdated',
+                            chatProgress: this._currentChatProgress
+                        });
+                    }
+                }
+            );
+
+            console.log(`Story generation result:`, generatedStory ? `Success - ${generatedStory.steps?.length} steps` : 'null');
+
+            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
+                return;
+            }
+
+            if (!generatedStory) {
+                console.error('Generated story is null or undefined');
+                throw new Error('Failed to generate story - returned null');
+            }
+
+            this._storyState = {
+                currentStory: generatedStory,
+                currentStepIndex: 0,
+                isStoryMode: true
+            };
+
+            this._view?.webview.postMessage({
+                type: 'storyGenerated',
+                story: generatedStory,
+                storyState: this._storyState
+            });
+
+            this._view?.webview.postMessage({
+                type: 'progress',
+                status: 'validating',
+                message: 'Validating story steps...'
+            });
+
+            // Validation happens inside generateStoryWithLanguageModel now
+            
+            this._view?.webview.postMessage({
+                type: 'progress',
+                status: 'completed',
+                message: 'Data story generated and validated successfully!'
+            });
+
+            this._executeCurrentStoryStep();
+
+        } catch (error) {
+            this._view?.webview.postMessage({
+                type: 'progress',
+                status: 'error',
+                message: `Story generation failed: ${error}`
+            });
+            vscode.window.showErrorMessage(`Story generation failed: ${error}`);
+        } finally {
+            this._isGenerating = false;
+            if (this._currentCancellationTokenSource) {
+                this._currentCancellationTokenSource.dispose();
+                this._currentCancellationTokenSource = undefined;
+            }
+        }
+    }
+
+    private _navigateStory(navigation: { direction: 'next' | 'previous' | 'jump', stepIndex?: number }) {
+        if (!this._storyState.currentStory) return;
+
+        const totalSteps = this._storyState.currentStory.steps.length;
+        
+        switch (navigation.direction) {
+            case 'next':
+                if (this._storyState.currentStepIndex < totalSteps - 1) {
+                    this._storyState.currentStepIndex++;
+                }
+                break;
+            case 'previous':
+                if (this._storyState.currentStepIndex > 0) {
+                    this._storyState.currentStepIndex--;
+                }
+                break;
+            case 'jump':
+                if (navigation.stepIndex !== undefined && 
+                    navigation.stepIndex >= 0 && 
+                    navigation.stepIndex < totalSteps) {
+                    this._storyState.currentStepIndex = navigation.stepIndex;
+                }
+                break;
+        }
+
+        this._view?.webview.postMessage({
+            type: 'storyStateUpdated',
+            storyState: this._storyState
+        });
+
+        this._executeCurrentStoryStep();
+    }
+
+    private _toggleStoryMode(enabled: boolean) {
+        this._storyState.isStoryMode = enabled;
+        if (!enabled) {
+            this._storyState.currentStory = undefined;
+            this._storyState.currentStepIndex = 0;
+        }
+
+        this._view?.webview.postMessage({
+            type: 'storyStateUpdated',
+            storyState: this._storyState
+        });
+    }
+
+    private async _executeCurrentStoryStep() {
+        if (!this._storyState.currentStory || !this._storyState.isStoryMode) return;
+
+        const currentStep = this._storyState.currentStory.steps[this._storyState.currentStepIndex];
+        if (!currentStep) return;
+
+        try {
+            const data = await this.executeSQLWithMCPReaderService(
+                currentStep.sqlQuery,
+                this._storyState.currentStory.datasetPath
+            );
+
+            this.openExecutionPanel();
+
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'executeStoryStep',
+                    data: data,
+                    step: currentStep
+                });
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to execute story step: ${error}`);
+        }
+    }
+
     private async executeSQLWithMCPReaderService(sqlQuery: string, datasetPath: string): Promise<ChartData> {
         try {
             const toolResult = await vscode.lm.invokeTool(
@@ -568,6 +741,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         case 'executeVisualization':
                             executeVisualizationInPanel(message.data, message.config);
                             break;
+                        case 'executeStoryStep':
+                            executeStoryStepInPanel(message.data, message.step);
+                            break;
                         case 'checkStatus':
                             vscode.postMessage({ 
                                 type: 'visualizationStatus', 
@@ -603,6 +779,87 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                             }
                         } else {
                             container.innerHTML = '<div class="empty-state">No visualization code available</div>';
+                            visualizationSuccess = false;
+                        }
+                        
+                    } catch (error) {
+                        document.getElementById('visualization-container').innerHTML = 
+                            \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error: \${error.message}</div>\`;
+                        visualizationSuccess = false;
+                    }
+                }
+                
+                function executeStoryStepInPanel(data, step) {
+                    try {
+                        const container = document.getElementById('visualization-container');
+                        container.innerHTML = '';
+                        
+                        // Add story step context with enhanced styling
+                        const stepHeader = document.createElement('div');
+                        stepHeader.style.cssText = \`
+                            background: linear-gradient(135deg, var(--vscode-sideBar-background) 0%, var(--vscode-editor-background) 100%);
+                            padding: 20px 24px;
+                            border-bottom: 2px solid var(--vscode-button-background);
+                            margin-bottom: 24px;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                        \`;
+                        stepHeader.innerHTML = \`
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                                <h1 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--vscode-foreground); text-shadow: 0 1px 2px rgba(0,0,0,0.1);">\${step.title}</h1>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <span style="background: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 6px 12px; border-radius: 6px; font-size: 11px; text-transform: uppercase; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">\${step.visualizationType} Chart</span>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: var(--vscode-foreground); opacity: 0.9;">Analysis Overview</h3>
+                                <p style="margin: 0; color: var(--vscode-descriptionForeground); font-size: 14px; line-height: 1.6; font-weight: 400;">\${step.description}</p>
+                            </div>
+                            <div style="background: var(--vscode-textBlockQuote-background); border-left: 6px solid var(--vscode-textLink-foreground); padding: 16px 20px; margin: 0; border-radius: 0 8px 8px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                                <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                    <span style="font-size: 18px; margin-right: 8px;">💡</span>
+                                    <strong style="color: var(--vscode-textLink-foreground); font-size: 14px; font-weight: 600;">Key Insight</strong>
+                                </div>
+                                <p style="margin: 0; color: var(--vscode-foreground); font-size: 14px; line-height: 1.5; font-weight: 500;">\${step.insight}</p>
+                            </div>
+                        \`;
+                        container.appendChild(stepHeader);
+                        
+                        // Create chart container with enhanced styling
+                        const chartContainer = document.createElement('div');
+                        chartContainer.id = 'step-chart-container';
+                        chartContainer.style.cssText = \`
+                            flex: 1; 
+                            min-height: 500px; 
+                            background: var(--vscode-editor-background);
+                            border: 1px solid var(--vscode-panel-border);
+                            border-radius: 8px;
+                            padding: 16px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                            margin: 0 8px 16px 8px;
+                        \`;
+                        container.appendChild(chartContainer);
+                        
+                        if (step.jsCode) {
+                            try {
+                                const executeJS = new Function('data', 'Plotly', 'container', \`
+                                    try {                                                                                
+                                        \${step.jsCode.replace('visualization-container', 'step-chart-container')}
+                                        return true;
+                                    } catch (error) {
+                                        console.error('Visualization error:', error);
+                                        document.getElementById('step-chart-container').innerHTML = '<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;"><strong>Visualization Error:</strong><br>' + error.message + '</div>';
+                                        return false;
+                                    }
+                                \`);
+                                
+                                visualizationSuccess = executeJS(data.rows, Plotly, 'step-chart-container');
+                            } catch (error) {
+                                console.error('Execution error:', error);
+                                chartContainer.innerHTML = \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error: \${error.message}</div>\`;
+                                visualizationSuccess = false;
+                            }
+                        } else {
+                            chartContainer.innerHTML = '<div class="empty-state">No visualization code available for this step</div>';
                             visualizationSuccess = false;
                         }
                         
@@ -1167,6 +1424,71 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     opacity: 0.7;
                     margin-top: 2px;
                 }
+                
+                .story-navigation {
+                    margin-top: 16px;
+                    padding: 12px;
+                    background-color: var(--vscode-editor-background);
+                    border: 1px solid var(--vscode-panel-border);
+                    border-radius: 4px;
+                    animation: fadeIn 0.3s ease;
+                }
+                
+                .story-info {
+                    margin-bottom: 12px;
+                }
+                
+                .story-title {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: var(--vscode-foreground);
+                    margin-bottom: 4px;
+                }
+                
+                .story-step-indicator {
+                    font-size: 11px;
+                    color: var(--vscode-descriptionForeground);
+                }
+                
+                .navigation-controls {
+                    display: flex;
+                    gap: 8px;
+                    justify-content: space-between;
+                }
+                
+                .nav-button {
+                    flex: 1;
+                    background-color: var(--vscode-button-secondaryBackground);
+                    color: var(--vscode-button-secondaryForeground);
+                    border: 1px solid var(--vscode-button-border);
+                    padding: 8px 16px;
+                    border-radius: 3px;
+                    cursor: pointer;
+                    font-family: var(--vscode-font-family);
+                    font-size: 11px;
+                    font-weight: 500;
+                    transition: all 0.15s ease;
+                }
+                
+                .nav-button:hover:not(:disabled) {
+                    background-color: var(--vscode-button-secondaryHoverBackground);
+                    transform: translateY(-1px);
+                }
+                
+                .nav-button:disabled {
+                    opacity: 0.4;
+                    cursor: not-allowed;
+                    transform: none;
+                }
+                
+                .story-mode-button {
+                    background-color: var(--vscode-textLink-foreground);
+                    color: var(--vscode-button-foreground);
+                }
+                
+                .story-mode-button:hover:not(:disabled) {
+                    background-color: var(--vscode-textLink-activeForeground);
+                }
             </style>
         </head>
         <body>
@@ -1180,8 +1502,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     </div>
                     
                     <div class="input-group">
-                        <label for="description">Visualization Goal</label>
-                        <textarea id="description" placeholder="Describe what you want to visualize..."></textarea>
+                        <label for="description">Data Story Goal</label>
+                        <textarea id="description" placeholder="Describe what data story you want to explore, e.g., 'Analyze the distribution and quality of image classifications, show patterns and identify outliers'"></textarea>
                     </div>
                     
                     <div class="input-group">
@@ -1214,9 +1536,20 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     </div>
                     
                     <div class="button-group">
-                        <button class="action-button generate-button" onclick="generate()">Generate Visualization</button>
+                        <button class="action-button generate-button story-mode-button" onclick="generateStory()">Generate Data Story</button>
                         <button class="action-button cancel-button" onclick="cancelGeneration()" style="display: none;">Cancel</button>
                         <button class="action-button clear" onclick="clearAll()">Clear</button>
+                    </div>
+                    
+                    <div class="story-navigation" id="storyNavigation" style="display: none;">
+                        <div class="story-info">
+                            <div class="story-title" id="storyTitle"></div>
+                            <div class="story-step-indicator" id="stepIndicator"></div>
+                        </div>
+                        <div class="navigation-controls">
+                            <button class="nav-button" id="prevButton" onclick="navigateStory('previous')" disabled>← Previous</button>
+                            <button class="nav-button" id="nextButton" onclick="navigateStory('next')">Next →</button>
+                        </div>
                     </div>
                     
                     <div class="progress-container" id="progressContainer">
@@ -1448,12 +1781,13 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     vscode.postMessage({ type: 'configUpdate', config: config });
                 }
                 
-                function generate() {
+                
+                function generateStory() {
                     const description = document.getElementById('description').value.trim();
                     const datasetPath = document.getElementById('datasetPath').value.trim();
                     
                     if (!description) {
-                        showValidationError('description', 'Please describe what you want to visualize.');
+                        showValidationError('description', 'Please describe what story you want to tell with your data.');
                         return;
                     }
                     
@@ -1469,6 +1803,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     }
                     
                     setGeneratingState(true);
+                    hideStoryNavigation();
                     
                     const progressContainer = document.getElementById('progressContainer');
                     const chatProgressToggle = document.getElementById('chatProgressToggle');
@@ -1482,7 +1817,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     // Reset chat progress toggle state
                     resetChatProgressToggle();
                     
-                    vscode.postMessage({ type: 'generate', description: description });
+                    vscode.postMessage({ type: 'generateStory', description: description });
                 }
                 
                 function cancelGeneration() {
@@ -1490,16 +1825,16 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 }
                 
                 function setGeneratingState(isGenerating) {
-                    const generateButton = document.querySelector('.generate-button');
+                    const storyButton = document.querySelector('.story-mode-button');
                     const cancelButton = document.querySelector('.cancel-button');
                     const clearButton = document.querySelector('.clear');
                     
                     if (isGenerating) {
-                        // Update generate button
-                        generateButton.disabled = true;
-                        generateButton.classList.add('loading-state');
-                        generateButton.innerHTML = 'Generating...';
-                        generateButton.style.display = 'none';
+                        // Update story button
+                        storyButton.disabled = true;
+                        storyButton.classList.add('loading-state');
+                        storyButton.innerHTML = 'Generating Data Story...';
+                        storyButton.style.display = 'none';
                         
                         // Show cancel button
                         cancelButton.style.display = 'flex';
@@ -1509,11 +1844,11 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         clearButton.disabled = true;
                         clearButton.style.opacity = '0.5';
                     } else {
-                        // Reset generate button
-                        generateButton.disabled = false;
-                        generateButton.classList.remove('loading-state');
-                        generateButton.innerHTML = 'Generate Visualization';
-                        generateButton.style.display = 'flex';
+                        // Reset story button
+                        storyButton.disabled = false;
+                        storyButton.classList.remove('loading-state');
+                        storyButton.innerHTML = 'Generate Data Story';
+                        storyButton.style.display = 'flex';
                         
                         // Hide cancel button
                         cancelButton.style.display = 'none';
@@ -1522,6 +1857,34 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         clearButton.disabled = false;
                         clearButton.style.opacity = '1';
                     }
+                }
+                
+                function navigateStory(direction) {
+                    vscode.postMessage({ 
+                        type: 'navigateStory', 
+                        storyNavigation: { direction: direction }
+                    });
+                }
+                
+                function showStoryNavigation(story, currentStepIndex) {
+                    const navigation = document.getElementById('storyNavigation');
+                    const title = document.getElementById('storyTitle');
+                    const indicator = document.getElementById('stepIndicator');
+                    const prevButton = document.getElementById('prevButton');
+                    const nextButton = document.getElementById('nextButton');
+                    
+                    navigation.style.display = 'block';
+                    title.textContent = story.title;
+                    indicator.textContent = \`Step \${currentStepIndex + 1} of \${story.steps.length}: \${story.steps[currentStepIndex].title}\`;
+                    
+                    // Update button states
+                    prevButton.disabled = currentStepIndex === 0;
+                    nextButton.disabled = currentStepIndex === story.steps.length - 1;
+                }
+                
+                function hideStoryNavigation() {
+                    const navigation = document.getElementById('storyNavigation');
+                    navigation.style.display = 'none';
                 }
                 
                 function showValidationError(fieldId, message) {
@@ -1719,14 +2082,24 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 window.addEventListener('message', event => {
                     const message = event.data;
                     switch (message.type) {
-                        case 'codeGenerated':
-                            document.getElementById('sqlQuery').value = message.config.sqlQuery || '';
-                            document.getElementById('customJS').value = message.config.customJS || '';
+                        case 'storyGenerated':
+                            showStoryNavigation(message.story, message.storyState.currentStepIndex);
+                            // Clear the single-viz outputs since we're in story mode
+                            document.getElementById('sqlQuery').value = '';
+                            document.getElementById('customJS').value = '';
+                            break;
+                        case 'storyStateUpdated':
+                            if (message.storyState.currentStory && message.storyState.isStoryMode) {
+                                showStoryNavigation(message.storyState.currentStory, message.storyState.currentStepIndex);
+                            } else {
+                                hideStoryNavigation();
+                            }
                             break;
                         case 'configCleared':
                             document.getElementById('description').value = message.config.description || '';
                             document.getElementById('sqlQuery').value = message.config.sqlQuery || '';
                             document.getElementById('customJS').value = message.config.customJS || '';
+                            hideStoryNavigation();
                             break;
                         case 'availableModels':
                             populateModels(message.models);

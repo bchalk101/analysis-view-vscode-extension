@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import { ErrorReportingService } from './ValidationService';
-import { ChatProgressStep, McpServerInfo } from './types';
+import { ChatProgressStep, McpServerInfo, DataStory } from './types';
 import {
   AnalysisGenerationPrompt,
+  StoryGenerationPrompt,
   RetryPrompt,
   AnalysisGenerationProps,
+  StoryGenerationProps,
   RetryPromptProps
 } from './buildPrompt';
 import { renderPrompt } from '@vscode/prompt-tsx';
@@ -629,6 +631,500 @@ export class CopilotIntegration {
       sql: sqlMatch ? sqlMatch[1].trim() : '',
       javascript: jsMatch ? jsMatch[1].trim() : ''
     };
+  }
+
+  private parseStoryResponse(response: string): DataStory | null {
+    try {
+      ErrorReportingService.logInfo(`Parsing story response. Response length: ${response.length}`);
+      ErrorReportingService.logInfo(`Response preview: ${response.substring(0, 500)}`);
+      
+      // Try multiple JSON patterns in order of specificity
+      const jsonPatterns = [
+        /```json\n([\s\S]*?)\n```/,           // Standard json block
+        /```json\s*([\s\S]*?)\s*```/,         // json block with flexible whitespace
+        /```\s*json\s*([\s\S]*?)\s*```/,      // json block with spaces
+        /```\s*([\s\S]*?)\s*```/,             // Any code block
+        /(\{[\s\S]*?"steps"[\s\S]*?\})/,      // Raw JSON with steps property
+        /(\{[\s\S]*?"title"[\s\S]*?\})/       // Raw JSON with title property
+      ];
+      
+      let jsonMatch = null;
+      for (let i = 0; i < jsonPatterns.length; i++) {
+        jsonMatch = response.match(jsonPatterns[i]);
+        if (jsonMatch) {
+          ErrorReportingService.logInfo(`Found JSON using pattern ${i}: ${jsonPatterns[i]}`);
+          break;
+        }
+      }
+      
+      if (!jsonMatch) {
+        ErrorReportingService.logInfo('No JSON found in response with any pattern');
+        ErrorReportingService.logInfo(`Response content: ${response.substring(0, 1000)}`);
+        return null;
+      }
+      
+      ErrorReportingService.logInfo(`JSON block found: ${jsonMatch[1].substring(0, 200)}`);
+      const storyData = JSON.parse(jsonMatch[1]);
+      
+      if (!storyData.title || !storyData.steps || !Array.isArray(storyData.steps)) {
+        ErrorReportingService.logInfo(`Invalid story structure: title=${!!storyData.title}, steps=${Array.isArray(storyData.steps)}`);
+        return null;
+      }
+      
+      return this.createStoryFromData(storyData);
+    } catch (error) {
+      ErrorReportingService.logError(error as Error, 'story-parsing');
+      ErrorReportingService.logInfo(`Raw response that failed to parse: ${response}`);
+      return null;
+    }
+  }
+
+  private generateUUID(): string {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+      }
+    } catch (error) {
+      ErrorReportingService.logInfo('crypto.randomUUID not available, using fallback');
+    }
+    
+    // Fallback UUID generation
+    return 'story-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+  }
+
+  private createStoryFromData(storyData: any): DataStory {
+    try {
+      const story: DataStory = {
+        id: this.generateUUID(),
+        title: storyData.title,
+        description: storyData.description || '',
+        steps: storyData.steps.map((step: any, index: number) => ({
+          id: step.id || `step-${index + 1}`,
+          title: step.title || `Step ${index + 1}`,
+          description: step.description || '',
+          insight: step.insight || '',
+          sqlQuery: step.sqlQuery || step.sql || '',
+          jsCode: step.jsCode || step.javascript || step.js || '',
+          visualizationType: step.visualizationType || step.type || 'bar',
+          order: step.order || index + 1
+        })),
+        createdAt: new Date().toISOString(),
+        datasetPath: ''
+      };
+
+      ErrorReportingService.logInfo(`Created story with ${story.steps.length} steps`);
+      story.steps.forEach((step, index) => {
+        ErrorReportingService.logInfo(`Step ${index + 1}: title="${step.title}", hasSQL=${!!step.sqlQuery}, hasJS=${!!step.jsCode}`);
+      });
+
+      return story;
+    } catch (error) {
+      ErrorReportingService.logError(error as Error, 'story-creation');
+      throw new Error(`Failed to create story structure: ${error}`);
+    }
+  }
+
+  async generateStoryWithLanguageModel(
+    description: string,
+    datasetPath: string = '',
+    selectedModelId?: string,
+    selectedMcpServerId?: string,
+    chatHistory: vscode.LanguageModelChatMessage[] = [],
+    onProgress?: (step: ChatProgressStep) => void
+  ): Promise<DataStory | null> {
+    const chatProgress: ChatProgressStep[] = [];
+    try {
+      const models = await this.getAvailableModels();
+      if (!models.length) {
+        vscode.window.showWarningMessage('No chat models available. Please ensure GitHub Copilot is installed and authenticated.');
+        return null;
+      }
+
+      let model = this.getModel(models, selectedModelId);
+      if (!model) {
+        vscode.window.showWarningMessage('No valid chat model found.');
+        return null;
+      }
+
+      if (model.vendor === 'copilot' && model.family.startsWith('o1')) {
+        const gpt4Models = await vscode.lm.selectChatModels({
+          vendor: 'copilot',
+          family: 'gpt-4o'
+        });
+        if (gpt4Models.length > 0) {
+          model = gpt4Models[0];
+        }
+      }
+
+      const availableTools = vscode.lm ? vscode.lm.tools : [];
+      let mcpTools = availableTools.filter(tool => !tool.name.startsWith('copilot'));
+
+      if (selectedMcpServerId && selectedMcpServerId !== 'all') {
+        ErrorReportingService.logInfo(`Filtering MCP tools for server: ${selectedMcpServerId}`);
+        mcpTools = mcpTools.filter(tool => {
+          const parts = tool.name.split('_');
+          if (parts.length >= 2 && parts[0] === 'mcp') {
+            return parts[1] === selectedMcpServerId;
+          }
+          return selectedMcpServerId === 'general-mcp' && tool.name.includes('mcp');
+        });
+      }
+
+      const storyProps: StoryGenerationProps = {
+        description,
+        datasetPath
+      };
+      const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
+      const { messages } = await renderPrompt(StoryGenerationPrompt, storyProps, endpoint, model);
+      const prompt = this.extractPromptText(messages);
+      this.addProgressStep(chatProgress, { type: 'user', content: prompt }, onProgress);
+
+      if (datasetPath) {
+        this.addProgressStep(chatProgress, {
+          type: 'user',
+          content: `Using dataset path: ${datasetPath}`,
+        }, onProgress);
+      }
+
+      const accumulatedToolResults: Record<string, vscode.LanguageModelToolResult> = {};
+      const toolCallRounds: any[] = [];
+      let finalMessages = messages;
+      let totalToolCallCount = 0;
+
+      const runWithTools = async (): Promise<string> => {
+        if (!model) {
+          throw new Error('No valid model available');
+        }
+
+        if (toolCallRounds.length >= CopilotIntegration.MAX_TOOL_CALL_ROUNDS) {
+          this.addProgressStep(chatProgress, {
+            type: 'error',
+            content: `Maximum tool call rounds reached (${CopilotIntegration.MAX_TOOL_CALL_ROUNDS}). Proceeding with current data.`,
+          }, onProgress);
+          ErrorReportingService.logInfo(`Tool call limit reached for story generation: ${toolCallRounds.length} rounds`);
+          
+          const storyProps: StoryGenerationProps = {
+            description,
+            datasetPath,
+            toolResults: []
+          };
+          const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
+          const result = await renderPrompt(StoryGenerationPrompt, storyProps, endpoint, model);
+          const finalResponse = await model.sendRequest(result.messages, {}, new vscode.CancellationTokenSource().token);
+          return await this.accumulateTextFromStream(finalResponse.stream);
+        }
+
+        const options: vscode.LanguageModelChatRequestOptions = {
+          justification: 'Generating data story with dataset exploration',
+        };
+
+        if (mcpTools.length > 0 && datasetPath) {
+          options.tools = mcpTools.slice(0, 128);
+          options.toolMode = vscode.LanguageModelChatToolMode.Auto;
+        }
+
+        const response = await model.sendRequest(finalMessages, options, new vscode.CancellationTokenSource().token);
+
+        let responseText = '';
+        const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+
+        for await (const part of response.stream) {
+          if (part instanceof vscode.LanguageModelTextPart) {
+            responseText += part.value;
+          } else if (part instanceof vscode.LanguageModelToolCallPart) {
+            toolCalls.push(part);
+            this.addProgressStep(chatProgress, {
+              type: 'tool_call',
+              content: `Calling tool: ${part.name}`,
+              toolName: part.name,
+              toolInput: this.safeJsonStringify(part.input)
+            }, onProgress);
+          }
+        }
+
+        if (toolCalls.length > CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND) {
+          this.addProgressStep(chatProgress, {
+            type: 'error',
+            content: `Too many tool calls in single round (${toolCalls.length} > ${CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND}). Processing only first ${CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND}.`,
+          }, onProgress);
+          toolCalls.splice(CopilotIntegration.MAX_TOOL_CALLS_PER_ROUND);
+        }
+
+        if (toolCalls.length > 0) {
+          totalToolCallCount += toolCalls.length;
+          
+          toolCallRounds.push({
+            response: responseText,
+            toolCalls
+          });
+
+          const toolResults = await this.handleToolCalls(toolCalls, datasetPath, chatProgress, onProgress);
+          toolResults.forEach(({ toolCall, result }) => {
+            accumulatedToolResults[toolCall.callId] = result;
+          });
+
+          if (this.shouldTerminateToolCalls(toolResults, toolCallRounds, totalToolCallCount, chatProgress, onProgress)) {
+            this.addProgressStep(chatProgress, {
+              type: 'user',
+              content: 'Sufficient data gathered from tools. Generating data story.',
+            }, onProgress);
+            
+            const storyProps: StoryGenerationProps = {
+              description,
+              datasetPath,
+              toolResults
+            };
+            const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
+            const result = await renderPrompt(StoryGenerationPrompt, storyProps, endpoint, model);
+            
+            const finalResponse = await model.sendRequest(result.messages, {}, new vscode.CancellationTokenSource().token);
+            return await this.accumulateTextFromStream(finalResponse.stream);
+          }
+
+          const storyProps: StoryGenerationProps = {
+            description,
+            datasetPath,
+            toolResults
+          };
+          const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
+          const result = await renderPrompt(StoryGenerationPrompt, storyProps, endpoint, model);
+          finalMessages = result.messages;
+
+          return runWithTools();
+        }
+
+        return responseText;
+      };
+
+      const finalText = await runWithTools();
+      this.addProgressStep(chatProgress, { type: 'assistant', content: finalText }, onProgress);
+      
+      ErrorReportingService.logInfo(`Story generation completed - Total rounds: ${toolCallRounds.length}, Total tool calls: ${totalToolCallCount}`);
+      ErrorReportingService.logInfo(`Final response length: ${finalText.length}`);
+      
+      const parsedStory = this.parseStoryResponse(finalText);
+      if (!parsedStory) {
+        ErrorReportingService.logInfo('Failed to parse story from response');
+        this.addProgressStep(chatProgress, { 
+          type: 'error', 
+          content: 'Failed to parse story structure from AI response. The AI may not have followed the expected JSON format.' 
+        }, onProgress);
+        throw new Error('Failed to parse story structure from AI response');
+      }
+      
+      if (parsedStory && datasetPath) {
+        parsedStory.datasetPath = datasetPath;
+      }
+      
+      ErrorReportingService.logInfo(`Successfully parsed story: "${parsedStory.title}" with ${parsedStory.steps.length} steps`);
+      
+      // Validate all story steps
+      const validatedStory = await this.validateStorySteps(parsedStory, datasetPath, chatProgress, model, onProgress);
+      return validatedStory;
+    } catch (error) {
+      this.addProgressStep(chatProgress, { type: 'error', content: 'Story generation failed', error: String(error) }, onProgress);
+      ErrorReportingService.logError(error as Error, 'story-generation-failure');
+      vscode.window.showErrorMessage(`Story generation failed: ${error}`);
+      return null;
+    }
+  }
+
+  private async validateStorySteps(
+    story: DataStory, 
+    datasetPath: string, 
+    chatProgress: ChatProgressStep[], 
+    model: vscode.LanguageModelChat,
+    onProgress?: (step: ChatProgressStep) => void
+  ): Promise<DataStory> {
+    this.addProgressStep(chatProgress, {
+      type: 'user',
+      content: `Validating ${story.steps.length} story steps...`
+    }, onProgress);
+
+    const validatedSteps = [];
+    const failedSteps = [];
+    
+    for (let i = 0; i < story.steps.length; i++) {
+      const step = story.steps[i];
+      this.addProgressStep(chatProgress, {
+        type: 'user',
+        content: `Validating step ${i + 1}: "${step.title}"`
+      }, onProgress);
+
+      try {
+        const result = await vscode.lm.invokeTool(
+          'mcp_reader-servic_query_dataset',
+          {
+            input: {
+              datasets: [{ name: 'Base', path: datasetPath, sql: step.sqlQuery }],
+              limit: 5,
+              result_only: true
+            },
+            toolInvocationToken: undefined,
+          },
+          new vscode.CancellationTokenSource().token
+        );
+
+        this.addProgressStep(chatProgress, {
+          type: 'tool_result',
+          content: `Step ${i + 1} SQL validation successful`,
+          toolName: 'mcp_reader-servic_query_dataset'
+        }, onProgress);
+
+        validatedSteps.push(step);
+        ErrorReportingService.logInfo(`Step ${i + 1} validated successfully`);
+      } catch (sqlError) {
+        ErrorReportingService.logError(sqlError as Error, `story-step-${i + 1}-validation`);
+        this.addProgressStep(chatProgress, {
+          type: 'error',
+          content: `Step ${i + 1} SQL validation failed: ${sqlError}`,
+          error: String(sqlError)
+        }, onProgress);
+
+        failedSteps.push({ step, index: i, error: String(sqlError) });
+      }
+    }
+
+    if (failedSteps.length > 0) {
+      this.addProgressStep(chatProgress, {
+        type: 'error',
+        content: `${failedSteps.length} story steps failed validation. Attempting to fix...`
+      }, onProgress);
+
+      // Try to fix failed steps
+      const fixedSteps = await this.fixFailedStorySteps(
+        story, 
+        failedSteps, 
+        datasetPath, 
+        chatProgress, 
+        model, 
+        onProgress
+      );
+
+      // Replace failed steps with fixed ones
+      for (const fixedStep of fixedSteps) {
+        if (fixedStep.fixed) {
+          validatedSteps.splice(fixedStep.index, 0, fixedStep.step);
+        }
+      }
+
+      // Remove steps that couldn't be fixed
+      const unfixableCount = failedSteps.length - fixedSteps.filter(s => s.fixed).length;
+      if (unfixableCount > 0) {
+        this.addProgressStep(chatProgress, {
+          type: 'error',
+          content: `${unfixableCount} steps could not be fixed and were removed from the story`
+        }, onProgress);
+      }
+    }
+
+    // Sort steps by order
+    validatedSteps.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+    if (validatedSteps.length === 0) {
+      throw new Error('No valid story steps could be generated');
+    }
+
+    this.addProgressStep(chatProgress, {
+      type: 'user',
+      content: `Story validation complete: ${validatedSteps.length} valid steps`
+    }, onProgress);
+
+    return {
+      ...story,
+      steps: validatedSteps
+    };
+  }
+
+  private async fixFailedStorySteps(
+    story: DataStory,
+    failedSteps: Array<{ step: any, index: number, error: string }>,
+    datasetPath: string,
+    chatProgress: ChatProgressStep[],
+    model: vscode.LanguageModelChat,
+    onProgress?: (step: ChatProgressStep) => void
+  ): Promise<Array<{ step: any, index: number, fixed: boolean }>> {
+    const maxRetries = 2;
+    const fixedSteps = [];
+
+    for (const failedStep of failedSteps) {
+      let retryCount = 0;
+      let stepFixed = false;
+
+      while (retryCount < maxRetries && !stepFixed) {
+        try {
+          this.addProgressStep(chatProgress, {
+            type: 'user',
+            content: `Attempting to fix step ${failedStep.index + 1}, retry ${retryCount + 1}`
+          }, onProgress);
+
+          const storyProps: StoryGenerationProps = {
+            description: `Fix this SQL query that failed with error: ${failedStep.error}`,
+            datasetPath,
+            toolResults: []
+          };
+          
+          const endpoint = { modelMaxPromptTokens: model.maxInputTokens };
+          const messages = [
+            vscode.LanguageModelChatMessage.User(
+              `Fix this SQL query for a data story step. The query failed with error: "${failedStep.error}"
+              
+              Original step:
+              - Title: ${failedStep.step.title}
+              - Description: ${failedStep.step.description}
+              - Failed SQL: ${failedStep.step.sqlQuery}
+              
+              Please provide ONLY a corrected SQL query that uses table name 'base' and avoids the error.
+              Return only the SQL query, nothing else.`
+            )
+          ];
+
+          const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
+          const fixedSQL = await this.accumulateTextFromStream(response.stream);
+          
+          // Clean up the SQL (remove code block markers if present)
+          const cleanSQL = fixedSQL.replace(/```sql\n?/, '').replace(/```\n?$/, '').trim();
+          
+          // Test the fixed SQL
+          await vscode.lm.invokeTool(
+            'mcp_reader-servic_query_dataset',
+            {
+              input: {
+                datasets: [{ name: 'Base', path: datasetPath, sql: cleanSQL }],
+                limit: 5,
+                result_only: true
+              },
+              toolInvocationToken: undefined,
+            },
+            new vscode.CancellationTokenSource().token
+          );
+
+          // If we get here, the SQL worked
+          failedStep.step.sqlQuery = cleanSQL;
+          stepFixed = true;
+          
+          this.addProgressStep(chatProgress, {
+            type: 'tool_result',
+            content: `Successfully fixed step ${failedStep.index + 1}`
+          }, onProgress);
+
+        } catch (error) {
+          retryCount++;
+          this.addProgressStep(chatProgress, {
+            type: 'error',
+            content: `Fix attempt ${retryCount} failed for step ${failedStep.index + 1}: ${error}`
+          }, onProgress);
+        }
+      }
+
+      fixedSteps.push({ 
+        step: failedStep.step, 
+        index: failedStep.index, 
+        fixed: stepFixed 
+      });
+    }
+
+    return fixedSteps;
   }
 
   async isLanguageModelAvailable(): Promise<boolean> {
