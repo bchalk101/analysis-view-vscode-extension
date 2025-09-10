@@ -7,7 +7,6 @@ export interface AnalysisViewConfig {
   description: string;
   datasetPath: string;
   sqlQuery: string;
-  customCSS: string;
   customJS: string;
   selectedModel?: string;
   selectedMcpServer?: string;
@@ -26,11 +25,7 @@ export interface PlotlyConfig {
 }
 
 export interface ModalState {
-  sqlModalOpened: boolean;
-  customJSModalOpened: boolean;
   promptModalOpened: boolean;
-  tempSqlQuery: string;
-  tempCustomJS: string;
   promptDescription: string;
   includeSqlRequest: boolean;
   generatedPrompt: string;
@@ -80,11 +75,27 @@ export interface StoryState {
   isStoryMode: boolean;
 }
 
+export interface CompleteReport {
+  metadata: {
+    title: string;
+    description: string;
+    exportedAt: string;
+    exportFormat: ExportFormat;
+    generatedBy: string;
+  };
+  configuration: AnalysisViewConfig;
+  story?: DataStory;
+  chatProgress?: ChatProgressStep[];
+}
+
+export type ExportFormat = 'json' | 'html' | 'pdf-ready';
+
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generate' | 'generateStory' | 'execute' | 'exportConfig' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'toggleStoryMode';
+  type: 'configUpdate' | 'generate' | 'generateStory' | 'execute' | 'exportConfig' | 'exportReport' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'toggleStoryMode';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;
+  exportFormat?: ExportFormat;
   storyNavigation?: {
     direction: 'next' | 'previous' | 'jump';
     stepIndex?: number;

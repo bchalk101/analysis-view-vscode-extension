@@ -77,6 +77,16 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
+        // Add a command to export complete report
+        const exportReportCommand = vscode.commands.registerCommand('analysis-view-playground.exportReport', async () => {
+            try {
+                await playgroundProvider.exportCompleteReport();
+            } catch (error) {
+                ErrorReportingService.logError(error as Error, 'export-report');
+                vscode.window.showErrorMessage('Failed to export report');
+            }
+        });
+
         // Add a command to test MCP service status
         const testMCPCommand = vscode.commands.registerCommand('analysis-view-playground.testMCPService', async () => {
             try {
@@ -242,6 +252,7 @@ export function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(
             openPlaygroundCommand,
             exportCommand,
+            exportReportCommand,
             testMCPCommand,
             checkMCPConnectionCommand
         );

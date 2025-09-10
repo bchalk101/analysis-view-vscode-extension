@@ -47,6 +47,10 @@
       {
         "command": "analysis-view-playground.testMCPService",
         "title": "Test MCP Service Connection"
+      },
+      {
+        "command": "analysis-view-playground.exportReport",
+        "title": "Export Complete Report"
       }
     ],
     "menus": {
@@ -62,6 +66,9 @@
         },
         {
           "command": "analysis-view-playground.testMCPService"
+        },
+        {
+          "command": "analysis-view-playground.exportReport"
         }
       ]
     },
