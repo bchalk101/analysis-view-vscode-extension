@@ -1,113 +1,105 @@
 # Analysis View Playground - VSCode Extension
 
-A VSCode extension that provides an interactive playground for developing SQL queries and custom JavaScript visualizations. This extension integrates with GitHub Copilot to help generate code and provides a seamless workflow for prototyping data visualizations before integrating into your main application.
+Transform your data into compelling stories with AI assistance. This VS Code extension helps you explore datasets, generate insights, and create beautiful visualizations - all without leaving your editor.
 
-## Features
+## What You Can Do
 
-- 🔍 **SQL Query Development**: Write and test SQL queries with Copilot assistance
-- ⚙️ **Custom JavaScript Editor**: Create custom Plotly configurations with intelligent code completion
-- ✨ **GitHub Copilot Integration**: Generate SQL and JavaScript code with AI assistance
-- 📤 **Export Functionality**: Copy configurations to clipboard for use in your main application
-- 💡 **AI Prompt Generator**: Create detailed prompts for AI assistants to help with complex visualizations
+- 📊 **Generate Data Stories**: Describe what you want to explore and get a complete analysis with multiple charts and insights
+- 🔍 **Write SQL Queries**: Get AI help writing and testing database queries
+- 📈 **Create Custom Charts**: Build interactive visualizations with Plotly.js
+- 🔌 **Connect to Data Sources**: Access databases and files through secure connections
+- 📤 **Export Everything**: Share your analysis as HTML reports, JSON data, or PDF-ready documents
+- 🚫 **Stay in Control**: Cancel AI generation anytime if it's not going where you want
 
-## Usage
+## Getting Started
 
-### Opening the Playground
+### Quick Start
 
-1. Open the Command Palette (`Cmd+Shift+P` on macOS, `Ctrl+Shift+P` on Windows/Linux)
-2. Search for "Open Analysis View Playground"
-3. Or click on the Analysis View Playground icon in the Activity Bar
+1. **Open the Extension**: 
+   - Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux)
+   - Type "Open Analysis View Playground" and press Enter
+   - Or click the chart icon in the VS Code sidebar
 
-### Working with SQL Queries
+2. **Point to Your Data**:
+   - Enter the path to your data file (CSV, JSON, database, etc.)
 
-1. **Write SQL directly in the playground**: Use the SQL Query section to write your queries
-2. **Generate with Copilot**: Click "Generate with Copilot" to open a SQL file with context
-   - Write comments describing what you want to query
-   - Copilot will suggest SQL based on your comments
-   - Copy the generated SQL back to the playground
-3. **Execute queries**: Click "▶️ Execute Query" to test with sample data
+3. **Describe What You Want**:
+   - Tell the AI what you want to explore (e.g., "Show me sales patterns over time and identify the best performing products")
 
-### Creating Custom JavaScript
+4. **Generate Your Story**:
+   - Click "Generate Data Story" and watch as the AI creates multiple analysis steps with charts
 
-1. **Select "Custom JavaScript" chart type**
-2. **Load template**: Click "📋 Load Template" for a starting point
-3. **Generate with Copilot**: Click "✨ Generate with Copilot" to open a JS file with:
-   - Plotly.js templates and examples
-   - Data structure documentation
-   - Context-aware code suggestions
-4. **Available variables in your code**:
-   - `data`: Array of row objects from your SQL query
-   - `columnNames`: Array of column names
-   - `chartType`: Selected chart type
+5. **Explore and Export**:
+   - Navigate through the generated insights
+   - Export as HTML to share with others
 
-### AI Prompt Generation
+### Sharing Your Work
 
-For complex visualizations, use the built-in prompt generator:
+- Export as HTML for interactive reports
 
-1. Click "💡 Create Prompt" in the Custom JavaScript section
-2. Describe what you want to achieve
-3. Choose whether to include SQL query suggestions
-4. Copy the generated prompt to use with Claude, ChatGPT, or other AI assistants
+### Tips for Better Results
 
-### Exporting Your Work
+- **Be Specific**: Instead of "analyze my data", try "compare monthly revenue by product category and highlight seasonal trends"
+- **Mention Chart Types**: Ask for "bar charts showing..." or "time series plots of..."
+- **Use Real Column Names**: If you know your data structure, mention actual column names
+- **Start Simple**: Begin with basic exploration, then ask for deeper analysis
 
-1. **Copy Configuration**: Click "📋 Copy Configuration" to copy the complete setup to clipboard
-2. **Save to File**: Save your configuration as a JSON file for later use
+## Setup Requirements
 
-## Extension Architecture
+### What You Need
 
-### Key Components
+- **VS Code**: Version 1.74.0 or newer
+- **AI Model Access**: The extension works with Claude, GPT, or other AI models available in VS Code
+- **Your Data**: CSV files, databases, or other data sources you want to analyze
 
-- **AnalysisViewPlaygroundProvider**: Main webview provider that handles the UI
-- **CopilotIntegration**: Manages GitHub Copilot interactions and code generation
-- **extension.ts**: Entry point that registers commands and providers
+### Optional: Connect to Databases
 
-### Commands
+For advanced users who want to connect to databases or external data sources:
+- Configure data connections through VS Code settings
+- The extension supports secure data access protocols
+- Use the "Test MCP Service Connection" command to verify connections
 
-- `analysis-view-playground.openPlayground`: Opens the main playground interface
-- `analysis-view-playground.generateSQLWithCopilot`: Opens SQL editor with Copilot
-- `analysis-view-playground.generateJSWithCopilot`: Opens JavaScript editor with Copilot
-- `analysis-view-playground.exportToMainApp`: Exports configuration to clipboard
+## Examples of What You Can Create
 
-## Requirements
+### Sales Analysis Story
+Ask: *"Analyze quarterly sales performance and identify top products by region"*
+- Get: Multi-step analysis with revenue trends, product rankings, regional comparisons, and actionable insights
 
-- **VSCode**: Version 1.74.0 or higher
-- **GitHub Copilot**: Install the GitHub Copilot extension for AI-assisted code generation
-- **Node.js**: For development and compilation
+### Customer Behavior Analysis  
+Ask: *"Explore user engagement patterns and conversion funnels"*
+- Get: User journey visualizations, drop-off analysis, and retention insights
 
-## Development
+### Financial Performance Dashboard
+Ask: *"Show financial health metrics and compare against industry benchmarks"*  
+- Get: KPI dashboards, trend analysis, and comparative charts
 
-### Building the Extension
+### Operational Efficiency Review
+Ask: *"Analyze process performance and identify bottlenecks"*
+- Get: Process flow charts, performance metrics, and improvement recommendations
 
-```bash
-npm run compile
-```
+## Troubleshooting
 
-### Running in Development
+### Common Issues
 
-1. Press `F5` in VSCode to launch the Extension Development Host
-2. Make changes to the TypeScript files
-3. Reload the Extension Development Host window to see changes
+**"No AI model available"**
+- Make sure you have Claude Code or another AI extension installed in VS Code
+- Check that your AI service is properly configured
 
-### Packaging
+**"Cannot read data file"**  
+- Verify the file path is correct
+- Ensure the file format is supported (CSV, JSON, etc.)
+- Check file permissions
 
-```bash
-npm install -g vsce
-vsce package
-```
+**"MCP connection failed"**
+- This is optional - basic features work without MCP
+- For database connections, verify your connection settings
 
-## MCP (Model Context Protocol) Integration
+### Getting Help
 
-This extension supports MCP servers for data analysis. MCP allows you to connect to various data sources securely.
+- Check the VS Code output panel for detailed error messages
+- Use the "Test MCP Service Connection" command to diagnose connection issues
+- Report issues on our GitHub repository
 
-## Contributing
+---
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for:
-- Development setup instructions
-- Coding guidelines and standards
-- Pull request process
-- Testing requirements
-
-## License
-
-This project is open source under the MIT License. See [LICENSE](LICENSE) for details.
+**Ready to turn your data into insights?** Install the extension and start exploring!
