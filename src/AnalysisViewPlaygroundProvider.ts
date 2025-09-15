@@ -276,6 +276,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 message: 'Data story generated and validated successfully!'
             });
 
+            // Open execution panel immediately, then execute the first step
+            this.openExecutionPanel();
             this._executeCurrentStoryStep();
 
         } catch (error) {
@@ -323,6 +325,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             storyState: this._storyState
         });
 
+        // Open panel immediately, then execute step
+        this.openExecutionPanel();
         this._executeCurrentStoryStep();
     }
 
@@ -346,12 +350,18 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         if (!currentStep) return;
 
         try {
+            // Show loading state immediately
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'showLoadingState',
+                    step: currentStep
+                });
+            }
+
             const data = await this.executeSQLWithMCPReaderService(
                 currentStep.sqlQuery,
                 this._storyState.currentStory.datasetPath
             );
-
-            this.openExecutionPanel();
 
             if (this._panel) {
                 this._panel.webview.postMessage({
@@ -361,7 +371,15 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 });
             }
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed to execute story step: ${error}`);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'showErrorState',
+                    error: errorMessage,
+                    step: currentStep
+                });
+            }
+            vscode.window.showErrorMessage(`Failed to execute story step: ${errorMessage}`);
         }
     }
 
@@ -513,10 +531,16 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         case 'executeStoryStep':
                             executeStoryStepInPanel(message.data, message.step);
                             break;
+                        case 'showLoadingState':
+                            showLoadingState(message.step);
+                            break;
+                        case 'showErrorState':
+                            showErrorState(message.error, message.step);
+                            break;
                         case 'checkStatus':
-                            vscode.postMessage({ 
-                                type: 'visualizationStatus', 
-                                success: visualizationSuccess 
+                            vscode.postMessage({
+                                type: 'visualizationStatus',
+                                success: visualizationSuccess
                             });
                             break;
                     }
@@ -636,6 +660,136 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         document.getElementById('visualization-container').innerHTML = 
                             \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error: \${error.message}</div>\`;
                         visualizationSuccess = false;
+                    }
+                }
+
+                function showLoadingState(step) {
+                    try {
+                        const container = document.getElementById('visualization-container');
+                        container.innerHTML = '';
+
+                        // Add story step header with loading indicator
+                        const stepHeader = document.createElement('div');
+                        stepHeader.style.cssText = \`
+                            background: linear-gradient(135deg, var(--vscode-sideBar-background) 0%, var(--vscode-editor-background) 100%);
+                            padding: 20px 24px;
+                            border-bottom: 2px solid var(--vscode-button-background);
+                            margin-bottom: 24px;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                        \`;
+                        stepHeader.innerHTML = \`
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                                <h1 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--vscode-foreground); text-shadow: 0 1px 2px rgba(0,0,0,0.1);">\${step.title}</h1>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <span style="background: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 6px 12px; border-radius: 6px; font-size: 11px; text-transform: uppercase; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">\${step.visualizationType} Chart</span>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: var(--vscode-foreground); opacity: 0.9;">Analysis Overview</h3>
+                                <p style="margin: 0; color: var(--vscode-descriptionForeground); font-size: 14px; line-height: 1.6; font-weight: 400;">\${step.description}</p>
+                            </div>
+                            <div style="background: var(--vscode-textBlockQuote-background); border-left: 6px solid var(--vscode-textLink-foreground); padding: 16px 20px; margin: 0; border-radius: 0 8px 8px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                                <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                    <span style="font-size: 18px; margin-right: 8px;">💡</span>
+                                    <strong style="color: var(--vscode-textLink-foreground); font-size: 14px; font-weight: 600;">Key Insight</strong>
+                                </div>
+                                <p style="margin: 0; color: var(--vscode-foreground); font-size: 14px; line-height: 1.5; font-weight: 500;">\${step.insight}</p>
+                            </div>
+                        \`;
+                        container.appendChild(stepHeader);
+
+                        // Create chart area with centered loading spinner
+                        const chartContainer = document.createElement('div');
+                        chartContainer.id = 'step-chart-container';
+                        chartContainer.style.cssText = \`
+                            flex: 1;
+                            min-height: 500px;
+                            background: var(--vscode-editor-background);
+                            border: 1px solid var(--vscode-panel-border);
+                            border-radius: 8px;
+                            padding: 16px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                            margin: 0 8px 16px 8px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            position: relative;
+                        \`;
+
+                        chartContainer.innerHTML = \`
+                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <div style="width: 48px; height: 48px; border: 4px solid var(--vscode-panel-border); border-top: 4px solid var(--vscode-button-background); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;"></div>
+                                <div style="color: var(--vscode-descriptionForeground); font-size: 14px; opacity: 0.8;">Loading visualization...</div>
+                            </div>
+                        \`;
+
+                        container.appendChild(chartContainer);
+
+                        // Add spinning animation keyframes if not already added
+                        if (!document.getElementById('spin-keyframes')) {
+                            const style = document.createElement('style');
+                            style.id = 'spin-keyframes';
+                            style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+                            document.head.appendChild(style);
+                        }
+
+                    } catch (error) {
+                        console.error('Error showing loading state:', error);
+                    }
+                }
+
+                function showErrorState(error, step) {
+                    try {
+                        const container = document.getElementById('visualization-container');
+                        container.innerHTML = '';
+
+                        // Add story step header
+                        const stepHeader = document.createElement('div');
+                        stepHeader.style.cssText = \`
+                            background: linear-gradient(135deg, var(--vscode-sideBar-background) 0%, var(--vscode-editor-background) 100%);
+                            padding: 20px 24px;
+                            border-bottom: 2px solid var(--vscode-errorForeground);
+                            margin-bottom: 24px;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                        \`;
+                        stepHeader.innerHTML = \`
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                                <h1 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--vscode-foreground); text-shadow: 0 1px 2px rgba(0,0,0,0.1);">\${step.title}</h1>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <span style="background: var(--vscode-errorForeground); color: var(--vscode-button-foreground); padding: 6px 12px; border-radius: 6px; font-size: 11px; text-transform: uppercase; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Error</span>
+                                </div>
+                            </div>
+                        \`;
+                        container.appendChild(stepHeader);
+
+                        // Create error container
+                        const errorContainer = document.createElement('div');
+                        errorContainer.style.cssText = \`
+                            flex: 1;
+                            background: var(--vscode-editor-background);
+                            border: 1px solid var(--vscode-errorBorder);
+                            border-radius: 8px;
+                            padding: 24px;
+                            margin: 0 8px 16px 8px;
+                            text-align: center;
+                        \`;
+
+                        errorContainer.innerHTML = \`
+                            <div style="margin-bottom: 16px; color: var(--vscode-errorForeground); font-size: 48px;">⚠️</div>
+                            <h3 style="margin: 0 0 12px 0; color: var(--vscode-errorForeground); font-size: 18px; font-weight: 600;">Execution Failed</h3>
+                            <p style="margin: 0 0 16px 0; color: var(--vscode-foreground); font-size: 14px; line-height: 1.5;">There was an error executing the SQL query for this step.</p>
+                            <div style="background: var(--vscode-inputValidation-errorBackground); border: 1px solid var(--vscode-inputValidation-errorBorder); border-radius: 6px; padding: 16px; margin: 16px 0; text-align: left;">
+                                <div style="color: var(--vscode-inputValidation-errorForeground); font-size: 12px; margin-bottom: 8px; font-weight: 600;">Error Details:</div>
+                                <code style="color: var(--vscode-inputValidation-errorForeground); font-family: var(--vscode-editor-font-family); font-size: 12px; line-height: 1.4; display: block; white-space: pre-wrap; word-break: break-word;">\${error}</code>
+                            </div>
+                        \`;
+
+                        container.appendChild(errorContainer);
+
+                    } catch (error) {
+                        console.error('Error showing error state:', error);
+                        document.getElementById('visualization-container').innerHTML =
+                            \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error displaying error state: \${error.message}</div>\`;
                     }
                 }
             </script>
