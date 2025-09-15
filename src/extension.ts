@@ -20,11 +20,9 @@ export function activate(context: vscode.ExtensionContext) {
     try {
         PerformanceMonitor.startTimer('extension-activation');
 
-        // Initialize error reporting
         ErrorReportingService.initialize(context);
         ErrorReportingService.logInfo('Analysis View Playground extension is activating...');
 
-        // Register MCP Services information
         registerMCPServices(context);
 
         const playgroundProvider = new AnalysisViewPlaygroundProvider(context.extensionUri);
@@ -44,16 +42,6 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
-        const exportCommand = vscode.commands.registerCommand('analysis-view-playground.exportToMainApp', () => {
-            try {
-                playgroundProvider.exportConfiguration();
-            } catch (error) {
-                ErrorReportingService.logError(error as Error, 'export-configuration');
-                vscode.window.showErrorMessage('Failed to export configuration');
-            }
-        });
-
-        // Add a command to check MCP server connection status
         const checkMCPConnectionCommand = vscode.commands.registerCommand('analysis-view-playground.checkMCPConnection', async () => {
             try {
                 ErrorReportingService.logInfo('Checking MCP connection status...');
@@ -77,7 +65,6 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
-        // Add a command to export complete report
         const exportReportCommand = vscode.commands.registerCommand('analysis-view-playground.exportReport', async () => {
             try {
                 await playgroundProvider.exportCompleteReport();
@@ -87,7 +74,6 @@ export function activate(context: vscode.ExtensionContext) {
             }
         });
 
-        // Add a command to test MCP service status
         const testMCPCommand = vscode.commands.registerCommand('analysis-view-playground.testMCPService', async () => {
             try {
                 ErrorReportingService.logInfo('=== MCP SERVICE TEST START ===');
@@ -251,7 +237,6 @@ export function activate(context: vscode.ExtensionContext) {
 
         context.subscriptions.push(
             openPlaygroundCommand,
-            exportCommand,
             exportReportCommand,
             testMCPCommand,
             checkMCPConnectionCommand
@@ -262,7 +247,6 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.window.showInformationMessage('Analysis View Playground is ready! Use "Test MCP Service Connection" to check MCP functionality.');
 
-        // Auto-run MCP test in development mode
         if (process.env.NODE_ENV === 'development') {
             ErrorReportingService.logInfo('Development mode detected, auto-testing MCP service...');
             setTimeout(() => {

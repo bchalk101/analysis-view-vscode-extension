@@ -55,15 +55,6 @@ SELECT column1, COUNT(*) as count FROM base GROUP BY column1
 ### Retry Logic with Chat History
 The extension implements intelligent retry on SQL/visualization failures by maintaining `chatHistory` and appending error context for iterative fixes (max 3 retries).
 
-### Webview Communication
-Uses message passing between webview and extension:
-```typescript
-// Extension to webview
-this._view?.webview.postMessage({ type: 'progress', status: 'generating' });
-
-// Webview to extension  
-case 'generate': this._generateAndExecute(data.description);
-```
 
 ## Extension-Specific Conventions
 

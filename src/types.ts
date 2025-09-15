@@ -1,7 +1,3 @@
-/**
- * TypeScript interfaces for the Analysis View Playground extension
- */
-
 export interface AnalysisViewConfig {
   name: string;
   description: string;
@@ -91,7 +87,7 @@ export interface CompleteReport {
 export type ExportFormat = 'json' | 'html' | 'pdf-ready';
 
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generate' | 'generateStory' | 'execute' | 'exportConfig' | 'exportReport' | 'requestData' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'toggleStoryMode';
+  type: 'configUpdate' | 'generateStory' | 'exportReport' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'toggleStoryMode';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;

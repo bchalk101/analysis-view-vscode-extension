@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import * as os from 'os';
-import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, StoryState, CompleteReport, ExportFormat } from './types';
+import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, StoryState, ExportFormat } from './types';
 import { CopilotIntegration } from './CopilotIntegration';
 import { ErrorReportingService } from './ValidationService';
+import { ReportGenerator } from './ReportGenerator';
 
 export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'analysisViewConfig';
@@ -25,6 +25,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         currentStepIndex: 0,
         isStoryMode: false
     };
+    private _reportGenerator = new ReportGenerator();
 
     constructor(private readonly _extensionUri: vscode.Uri) {
         this._copilotIntegration = new CopilotIntegration();
@@ -55,11 +56,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 case 'cancelGeneration':
                     this._cancelGeneration();
                     break;
-                case 'exportConfig':
-                    this._exportConfiguration();
-                    break;
                 case 'exportReport':
-                    this._exportCompleteReport(data.exportFormat || 'html');
+                    this._reportGenerator.exportCompleteReport(this._storyState, this._currentChatProgress, data.exportFormat || 'html', this._config);
                     break;
                 case 'getAvailableModels':
                     this._getAvailableModels();
@@ -140,24 +138,20 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         }
     }
 
-    public exportConfiguration() {
-        this._exportConfiguration();
-    }
-
     private _cancelGeneration() {
         if (this._currentCancellationTokenSource) {
             this._currentCancellationTokenSource.cancel();
             this._currentCancellationTokenSource.dispose();
             this._currentCancellationTokenSource = undefined;
         }
-        
-        
+
+
         this._view?.webview.postMessage({
             type: 'progress',
             status: 'cancelled',
             message: 'Generation cancelled by user'
         });
-        
+
         this._view?.webview.postMessage({
             type: 'generationCancelled'
         });
@@ -216,221 +210,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         }
     }
 
-    private async _generateAndExecute(description: string, retryCount: number = 0): Promise<void> {
-        const maxRetries = 3;
-        
-        // Cancel any existing generation
-        if (this._currentCancellationTokenSource) {
-            this._currentCancellationTokenSource.cancel();
-            this._currentCancellationTokenSource.dispose();
-        }
-        
-        this._currentCancellationTokenSource = new vscode.CancellationTokenSource();
-        
-        try {
-            this._view?.webview.postMessage({
-                type: 'progress',
-                status: 'started',
-                message: retryCount > 0 ? `Retry ${retryCount}: Generating visualization...` : 'Generating visualization...'
-            });
-
-            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
-                return;
-            }
-
-            await new Promise(resolve => setTimeout(resolve, 800));
-
-            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
-                return;
-            }
-
-            this._view?.webview.postMessage({
-                type: 'progress',
-                status: 'generating',
-                message: 'Creating SQL query and visualization code...'
-            });
-
-            const generatedCode = await this._copilotIntegration.generateCodeWithLanguageModel(
-                description,
-                this._config.datasetPath,
-                this._config.selectedModel,
-                this._config.selectedMcpServer,
-                this._currentChatHistory,
-                (step: ChatProgressStep) => {
-                    if (!this._currentCancellationTokenSource?.token.isCancellationRequested) {
-                        this._currentChatProgress.push(step);
-                        this._view?.webview.postMessage({
-                            type: 'chatProgressUpdated',
-                            chatProgress: this._currentChatProgress
-                        });
-                    }
-                }
-            );
-
-            if (this._currentCancellationTokenSource.token.isCancellationRequested) {
-                return;
-            }
-
-            if (!generatedCode) {
-                throw new Error('Failed to generate code');
-            }
-
-            this._currentChatProgress = generatedCode.chatProgress || this._currentChatProgress;
-
-            this._config.sqlQuery = generatedCode.sql;
-            this._config.customJS = generatedCode.javascript;
-
-            this._view?.webview.postMessage({
-                type: 'codeGenerated',
-                config: this._config
-            });
-
-            this._view?.webview.postMessage({
-                type: 'chatProgressUpdated',
-                chatProgress: this._currentChatProgress
-            });
-
-            this._view?.webview.postMessage({
-                type: 'progress',
-                status: 'executing',
-                message: 'Running SQL query and rendering visualization...'
-            });
-
-            let data: ChartData = { columnNames: [], rows: [] };
-
-            try {
-                if (this._currentCancellationTokenSource.token.isCancellationRequested) {
-                    return;
-                }
-                
-                data = await this.executeSQLWithMCPReaderService(
-                    this._config.sqlQuery,
-                    this._config.datasetPath
-                );
-            } catch (error) {
-                if (this._currentCancellationTokenSource?.token.isCancellationRequested) {
-                    return;
-                }
-                if (retryCount < maxRetries) {
-                    this._view?.webview.postMessage({
-                        type: 'progress',
-                        status: 'retrying',
-                        message: `SQL failed, regenerating query...`
-                    });
-
-                    this._currentChatHistory.push(
-                        vscode.LanguageModelChatMessage.Assistant(`SQL:\n${this._config.sqlQuery}\n\nJavaScript:\n${this._config.customJS}`),
-                        vscode.LanguageModelChatMessage.User(`SQL query failed with error: ${error}. Fix the SQL query.`)
-                    );
-
-                    return this._generateAndExecute(description, retryCount + 1);
-                }
-                
-                this._view?.webview.postMessage({
-                    type: 'progress',
-                    status: 'error',
-                    message: `SQL execution failed: ${error}`
-                });
-                throw error;
-            }
-
-            this.openExecutionPanel();
-
-            if (this._panel) {
-                this._panel.webview.postMessage({
-                    type: 'executeVisualization',
-                    data: data,
-                    config: this._config
-                });
-
-                await new Promise(resolve => setTimeout(resolve, 2000));
-
-                const success = await this._checkVisualizationSuccess();
-
-                if (!success && retryCount < maxRetries) {
-                    const errorContext = `Visualization failed. Data: ${data.rows.length} rows, columns: ${data.columnNames.join(', ')}. Fix both SQL and JavaScript code.`;
-                    
-                    this._view?.webview.postMessage({
-                        type: 'progress',
-                        status: 'retrying',
-                        message: `Attempt ${retryCount + 1}/${maxRetries}: Fixing SQL and JavaScript...`
-                    });
-
-                    this._currentChatHistory.push(
-                        vscode.LanguageModelChatMessage.Assistant(`SQL:\n${this._config.sqlQuery}\n\nJavaScript:\n${this._config.customJS}`),
-                        vscode.LanguageModelChatMessage.User(errorContext)
-                    );
-
-                    return this._generateAndExecute(description, retryCount + 1);
-                }
-
-                this._view?.webview.postMessage({
-                    type: 'progress',
-                    status: 'completed',
-                    message: 'Visualization completed successfully!'
-                });
-
-                if (success) {
-                    this._currentChatHistory = [];
-                }
-            }
-
-        } catch (error) {
-            if (this._currentCancellationTokenSource?.token.isCancellationRequested) {
-                return;
-            }
-            if (retryCount < maxRetries) {
-                this._view?.webview.postMessage({
-                    type: 'progress',
-                    status: 'retrying',
-                    message: `Attempt ${retryCount + 1}/${maxRetries}: Error occurred, regenerating...`
-                });
-
-                this._currentChatHistory.push(
-                    vscode.LanguageModelChatMessage.User(`Error: ${error}. Fix both SQL and JavaScript code.`)
-                );
-
-                return this._generateAndExecute(description, retryCount + 1);
-            }
-
-            this._view?.webview.postMessage({
-                type: 'progress',
-                status: 'error',
-                message: `Generation failed after ${maxRetries} attempts: ${error}`
-            });
-            vscode.window.showErrorMessage(`Generation failed: ${error}`);
-        } finally {
-                if (this._currentCancellationTokenSource) {
-                this._currentCancellationTokenSource.dispose();
-                this._currentCancellationTokenSource = undefined;
-            }
-        }
-    }
-
-    private async _checkVisualizationSuccess(): Promise<boolean> {
-        try {
-            if (!this._panel) return false;
-            
-            return new Promise((resolve) => {
-                const timeout = setTimeout(() => resolve(false), 3000);
-                
-                this._panel!.webview.onDidReceiveMessage((message) => {
-                    if (message.type === 'visualizationStatus') {
-                        clearTimeout(timeout);
-                        resolve(message.success);
-                    }
-                });
-                
-                this._panel!.webview.postMessage({ type: 'checkStatus' });
-            });
-        } catch {
-            return false;
-        }
-    }
-
     private async _generateStory(description: string): Promise<void> {
         this._currentCancellationTokenSource = new vscode.CancellationTokenSource();
-        
+
         try {
             this._view?.webview.postMessage({
                 type: 'progress',
@@ -487,8 +269,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 message: 'Validating story steps...'
             });
 
-            // Validation happens inside generateStoryWithLanguageModel now
-            
+
             this._view?.webview.postMessage({
                 type: 'progress',
                 status: 'completed',
@@ -505,7 +286,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             });
             vscode.window.showErrorMessage(`Story generation failed: ${error}`);
         } finally {
-                if (this._currentCancellationTokenSource) {
+            if (this._currentCancellationTokenSource) {
                 this._currentCancellationTokenSource.dispose();
                 this._currentCancellationTokenSource = undefined;
             }
@@ -516,7 +297,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         if (!this._storyState.currentStory) return;
 
         const totalSteps = this._storyState.currentStory.steps.length;
-        
+
         switch (navigation.direction) {
             case 'next':
                 if (this._storyState.currentStepIndex < totalSteps - 1) {
@@ -529,8 +310,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 }
                 break;
             case 'jump':
-                if (navigation.stepIndex !== undefined && 
-                    navigation.stepIndex >= 0 && 
+                if (navigation.stepIndex !== undefined &&
+                    navigation.stepIndex >= 0 &&
                     navigation.stepIndex < totalSteps) {
                     this._storyState.currentStepIndex = navigation.stepIndex;
                 }
@@ -610,11 +391,11 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 const typedContent = contentItem as vscode.LanguageModelTextPart;
                 try {
                     let rawData = typedContent.value;
-                    
+
                     if (rawData.startsWith('Error') || rawData.includes('error') || rawData.includes('Error')) {
                         throw new Error(`MCP tool returned error: ${rawData}`);
                     }
-                    
+
                     rawData = rawData.replace(/^Sample data:\s*/, '');
                     const data = JSON.parse(rawData);
                     if (Array.isArray(data)) {
@@ -644,433 +425,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         }
     }
 
-    private _exportConfiguration() {
-        const exportData = {
-            ...this._config,
-            exportedAt: new Date().toISOString()
-        };
-
-        vscode.env.clipboard.writeText(JSON.stringify(exportData, null, 2)).then(() => {
-            vscode.window.showInformationMessage('Configuration copied to clipboard!');
-        });
-    }
-
     public async exportCompleteReport() {
-        // Default to HTML format when called from command palette
-        await this._exportCompleteReport('html');
-    }
-
-    private async _exportCompleteReport(format: ExportFormat) {
-        try {
-            ErrorReportingService.logInfo(`Starting export with format: ${format}`, 'export');
-            
-            // Check if there's content to export
-            if (!this._storyState.currentStory && !this._config.description && !this._config.datasetPath) {
-                vscode.window.showWarningMessage('No analysis content to export. Please generate a data story first.');
-                return;
-            }
-
-            ErrorReportingService.logInfo('Generating complete report', 'export');
-            const report = this._generateCompleteReport(format);
-            
-            let content: string;
-            let fileExtension: string;
-
-            ErrorReportingService.logInfo(`Processing format: ${format}`, 'export');
-            switch (format) {
-                case 'json':
-                    ErrorReportingService.logInfo('Generating JSON content', 'export');
-                    content = JSON.stringify(report, null, 2);
-                    fileExtension = 'json';
-                    break;
-                case 'html':
-                    ErrorReportingService.logInfo('Generating HTML content', 'export');
-                    content = this._generateHTMLReport(report);
-                    fileExtension = 'html';
-                    break;
-                case 'pdf-ready':
-                    ErrorReportingService.logInfo('Generating PDF-ready content', 'export');
-                    content = this._generatePDFReadyReport(report);
-                    fileExtension = 'html';
-                    break;
-                default:
-                    throw new Error(`Unsupported export format: ${format}`);
-            }
-            ErrorReportingService.logInfo(`Generated content length: ${content.length}`, 'export');
-
-            // Generate filename with timestamp
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-            const filename = `analysis-report-${timestamp}.${fileExtension}`;
-
-            // Save to file - use workspace folder or home directory as default
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-            const defaultPath = workspaceFolder ? 
-                vscode.Uri.joinPath(workspaceFolder, filename) : 
-                vscode.Uri.joinPath(vscode.Uri.file(os.homedir()), filename);
-            
-            ErrorReportingService.logInfo(`Default save path: ${defaultPath.fsPath}`, 'export');
-            
-            const filterName = format === 'pdf-ready' ? 'HTML (PDF-Ready)' : format.toUpperCase() + ' Files';
-            const uri = await vscode.window.showSaveDialog({
-                defaultUri: defaultPath,
-                filters: {
-                    [filterName]: [fileExtension]
-                }
-            });
-
-            if (uri) {
-                await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
-                vscode.window.showInformationMessage(`Report exported successfully to ${uri.fsPath}`);
-                
-                // Ask if user wants to open the file
-                const action = await vscode.window.showInformationMessage(
-                    'Would you like to open the exported report?',
-                    'Open'
-                );
-                
-                if (action === 'Open') {
-                    await vscode.env.openExternal(uri);
-                }
-            }
-
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to export report: ${error}`);
-            ErrorReportingService.logError(error as Error, 'export-complete-report');
-        }
-    }
-
-    private _generateCompleteReport(format: ExportFormat): CompleteReport {
-        return {
-            metadata: {
-                title: this._storyState.currentStory?.title || this._config.name || 'Analysis Report',
-                description: this._storyState.currentStory?.description || this._config.description || 'Generated analysis report',
-                exportedAt: new Date().toISOString(),
-                exportFormat: format,
-                generatedBy: 'Analysis View Playground v0.4.0'
-            },
-            configuration: {
-                ...this._config,
-                exportedAt: new Date().toISOString()
-            },
-            story: this._storyState.currentStory,
-            chatProgress: this._currentChatProgress
-        };
-    }
-
-    private _generateHTMLReport(report: CompleteReport): string {
-        const storySteps = report.story?.steps || [];
-        const hasStory = storySteps.length > 0;
-
-        return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${report.metadata.title}</title>
-    <script src="https://cdn.plot.ly/plotly-3.0.2.min.js"></script>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            margin: 0;
-            padding: 20px;
-            background-color: #f8f9fa;
-            color: #333;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
-        }
-        .header h1 {
-            margin: 0 0 10px 0;
-            font-size: 2.5em;
-            font-weight: 700;
-        }
-        .header p {
-            margin: 0;
-            opacity: 0.9;
-            font-size: 1.1em;
-        }
-        .metadata {
-            background: #f8f9fa;
-            padding: 20px 30px;
-            border-bottom: 1px solid #dee2e6;
-        }
-        .metadata-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-        .metadata-item {
-            display: flex;
-            flex-direction: column;
-        }
-        .metadata-label {
-            font-weight: 600;
-            color: #6c757d;
-            font-size: 0.9em;
-            margin-bottom: 5px;
-        }
-        .metadata-value {
-            color: #333;
-        }
-        .content {
-            padding: 30px;
-        }
-        .section {
-            margin-bottom: 40px;
-        }
-        .section h2 {
-            color: #495057;
-            border-bottom: 2px solid #e9ecef;
-            padding-bottom: 10px;
-            margin-bottom: 20px;
-        }
-        .story-step {
-            background: #f8f9fa;
-            border-radius: 8px;
-            padding: 25px;
-            margin-bottom: 25px;
-            border-left: 4px solid #667eea;
-        }
-        .step-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        .step-title {
-            font-size: 1.3em;
-            font-weight: 600;
-            color: #333;
-            margin: 0;
-        }
-        .step-type {
-            background: #667eea;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            text-transform: uppercase;
-            font-weight: 600;
-        }
-        .step-description {
-            margin-bottom: 15px;
-            color: #6c757d;
-        }
-        .insight-box {
-            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-        }
-        .insight-box strong {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 1.1em;
-        }
-        .visualization-container {
-            min-height: 400px;
-            background: white;
-            border: 1px solid #dee2e6;
-            border-radius: 6px;
-            padding: 10px;
-            margin-top: 15px;
-        }
-        .code-block {
-            background: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 4px;
-            padding: 15px;
-            margin: 10px 0;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 0.9em;
-            overflow-x: auto;
-        }
-        .code-label {
-            font-weight: 600;
-            color: #495057;
-            margin-bottom: 10px;
-            display: block;
-        }
-        .config-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-        }
-        .config-item {
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-        }
-        .config-item h3 {
-            margin: 0 0 10px 0;
-            color: #495057;
-        }
-        .footer {
-            background: #f8f9fa;
-            padding: 20px 30px;
-            text-align: center;
-            color: #6c757d;
-            font-size: 0.9em;
-            border-top: 1px solid #dee2e6;
-        }
-        @media print {
-            body { background: white; }
-            .container { box-shadow: none; }
-            .story-step { break-inside: avoid; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header class="header">
-            <h1>${report.metadata.title}</h1>
-            <p>${report.metadata.description}</p>
-        </header>
-
-        <div class="metadata">
-            <div class="metadata-grid">
-                <div class="metadata-item">
-                    <span class="metadata-label">Generated</span>
-                    <span class="metadata-value">${new Date(report.metadata.exportedAt).toLocaleString()}</span>
-                </div>
-                <div class="metadata-item">
-                    <span class="metadata-label">Dataset</span>
-                    <span class="metadata-value">${report.configuration.datasetPath || 'Not specified'}</span>
-                </div>
-                <div class="metadata-item">
-                    <span class="metadata-label">Export Format</span>
-                    <span class="metadata-value">${report.metadata.exportFormat.toUpperCase()}</span>
-                </div>
-                <div class="metadata-item">
-                    <span class="metadata-label">Generated By</span>
-                    <span class="metadata-value">${report.metadata.generatedBy}</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="content">
-            ${hasStory ? `
-            <section class="section">
-                <h2>📊 Data Story</h2>
-                ${storySteps.map((step, _index) => `
-                <div class="story-step">
-                    <div class="step-header">
-                        <h3 class="step-title">${step.title}</h3>
-                        <span class="step-type">${step.visualizationType}</span>
-                    </div>
-                    <div class="step-description">${step.description}</div>
-                    <div class="insight-box">
-                        <strong>💡 Key Insight</strong>
-                        ${step.insight}
-                    </div>
-                    
-                    <span class="code-label">SQL Query:</span>
-                    <div class="code-block">${step.sqlQuery}</div>
-                    
-                    <div class="visualization-container" id="viz-${step.id}"></div>
-                    
-                    <script>
-                        (function() {
-                            try {
-                                const container = document.getElementById('viz-${step.id}');
-                                ${step.jsCode.replace(/`/g, '\\`').replace(/\$\{/g, '\\$\\{')}
-                            } catch (error) {
-                                console.error('Visualization error for step ${step.title}:', error);
-                                document.getElementById('viz-${step.id}').innerHTML = '<div style="color: red; padding: 20px;">Visualization Error: ' + error.message + '</div>';
-                            }
-                        })();
-                    </script>
-                </div>
-                `).join('')}
-            </section>
-            ` : ''}
-
-            <section class="section">
-                <h2>⚙️ Configuration</h2>
-                <div class="config-grid">
-                    <div class="config-item">
-                        <h3>General</h3>
-                        <p><strong>Name:</strong> ${report.configuration.name}</p>
-                        <p><strong>Description:</strong> ${report.configuration.description || 'None'}</p>
-                        <p><strong>Dataset Path:</strong> ${report.configuration.datasetPath}</p>
-                    </div>
-                    <div class="config-item">
-                        <h3>Model Settings</h3>
-                        <p><strong>Selected Model:</strong> ${report.configuration.selectedModel || 'Default'}</p>
-                        <p><strong>MCP Server:</strong> ${report.configuration.selectedMcpServer || 'All available'}</p>
-                    </div>
-                </div>
-                
-                ${report.configuration.sqlQuery ? `
-                <div style="margin-top: 20px;">
-                    <span class="code-label">Generated SQL Query:</span>
-                    <div class="code-block">${report.configuration.sqlQuery}</div>
-                </div>
-                ` : ''}
-                
-                ${report.configuration.customJS ? `
-                <div style="margin-top: 20px;">
-                    <span class="code-label">Generated JavaScript:</span>
-                    <div class="code-block">${report.configuration.customJS}</div>
-                </div>
-                ` : ''}
-            </section>
-
-            ${report.chatProgress && report.chatProgress.length > 0 ? `
-            <section class="section">
-                <h2>💬 Generation Process</h2>
-                <p>This section shows the AI conversation that generated this report.</p>
-                <div style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 6px;">
-                    ${report.chatProgress.map(step => `
-                    <div style="margin-bottom: 15px; padding: 10px; background: white; border-radius: 4px; border-left: 3px solid ${
-                        step.type === 'user' ? '#007acc' : 
-                        step.type === 'assistant' ? '#333' : 
-                        step.type === 'tool_call' ? '#ff8c00' : 
-                        step.type === 'tool_result' ? '#228b22' : '#ff4500'
-                    };">
-                        <div style="font-weight: 600; color: #495057; margin-bottom: 5px;">
-                            ${step.type.replace('_', ' ').toUpperCase()}${step.toolName ? ` (${step.toolName})` : ''}
-                            <span style="float: right; font-weight: normal; font-size: 0.8em; color: #6c757d;">
-                                ${new Date(step.timestamp).toLocaleTimeString()}
-                            </span>
-                        </div>
-                        <div style="white-space: pre-wrap; font-size: 0.9em;">${
-                            step.content || step.toolOutput || step.error || 'No content'
-                        }</div>
-                    </div>
-                    `).join('')}
-                </div>
-            </section>
-            ` : ''}
-        </div>
-
-        <footer class="footer">
-            <p>Generated by ${report.metadata.generatedBy} • ${new Date(report.metadata.exportedAt).toLocaleString()}</p>
-        </footer>
-    </div>
-</body>
-</html>`;
-    }
-
-    private _generatePDFReadyReport(report: CompleteReport): string {
-        // Generate a PDF-optimized version with print styles
-        return this._generateHTMLReport(report).replace(
-            '<style>',
-            '<style>\n        @page { size: A4; margin: 1in; }\n        body { print-color-adjust: exact; }'
-        );
+        await this._reportGenerator.exportCompleteReport(this._storyState, this._currentChatProgress, 'html', this._config);
     }
 
     private _getExecutionHtmlForWebview(_webview: vscode.Webview): string {
@@ -2524,10 +1880,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     // Scroll to bottom
                     container.scrollTop = container.scrollHeight;
                 }
-                
-                function exportConfig() {
-                    vscode.postMessage({ type: 'exportConfig' });
-                }
+
                 
                 function exportReportHTML() {
                     vscode.postMessage({ type: 'exportReport', exportFormat: 'html' });

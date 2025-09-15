@@ -503,9 +503,6 @@ interface ToolResultElementProps extends BasePromptElementProps {
 	toolCallResult: vscode.LanguageModelToolResult | undefined;
 }
 
-/**
- * One tool call result, which either comes from the cache or from invoking the tool.
- */
 class ToolResultElement extends PromptElement<ToolResultElementProps, void> {
 	async render(state: void, sizing: PromptSizing): Promise<PromptPiece | undefined> {
 		const tool = vscode.lm.tools.find(t => t.name === this.props.toolCall.name);
@@ -554,15 +551,12 @@ export interface ToolCallsMetadata {
 }
 
 function isTsxToolUserMetadata(obj: unknown): obj is TsxToolUserMetadata {
-	// If you change the metadata format, you would have to make this stricter or handle old objects in old ChatRequest metadata
 	return !!obj &&
 		!!(obj as TsxToolUserMetadata).toolCallsMetadata &&
 		Array.isArray((obj as TsxToolUserMetadata).toolCallsMetadata.toolCallRounds);
 }
 
-/**
- * Render the chat history, including previous tool call/results.
- */
+
 class History extends PromptElement<HistoryProps, void> {
 	render(_state: void, _sizing: PromptSizing) {
 		return (
@@ -589,9 +583,6 @@ class History extends PromptElement<HistoryProps, void> {
 	}
 }
 
-/**
- * Convert the stream of chat response parts into something that can be rendered in the prompt.
- */
 function chatResponseToString(response: vscode.ChatResponseTurn): string {
 	return response.response
 		.map((r) => {
@@ -615,9 +606,6 @@ interface PromptReferencesProps extends BasePromptElementProps {
 	excludeReferences?: boolean;
 }
 
-/**
- * Render references that were included in the user's request, eg files and selections.
- */
 class PromptReferences extends PromptElement<PromptReferencesProps, void> {
 	render(_state: void, _sizing: PromptSizing): PromptPiece {
 		return (

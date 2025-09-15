@@ -7,12 +7,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/analysis-view-playground.git"
+    "url": "https://github.com/bchalk101/analysis-view-vscode-extension.git"
   },
   "bugs": {
-    "url": "https://github.com/your-username/analysis-view-playground/issues"
+    "url": "https://github.com/bchalk101/analysis-view-vscode-extension/issues"
   },
-  "homepage": "https://github.com/your-username/analysis-view-playground#readme",
+  "homepage": "https://github.com/bchalk101/analysis-view-vscode-extension#readme",
   "keywords": [
     "data-visualization",
     "sql",
