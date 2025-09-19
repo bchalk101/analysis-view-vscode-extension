@@ -452,12 +452,14 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 #visualization-container {
                     flex: 1;
                     display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    flex-direction: column;
+                    align-items: stretch;
+                    justify-content: flex-start;
                     background-color: var(--vscode-editor-background);
                     color: var(--vscode-descriptionForeground);
                     position: relative;
                     min-height: 400px;
+                    overflow: auto;
                 }
                 
                 .empty-state {
@@ -621,7 +623,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         chartContainer.id = 'step-chart-container';
                         chartContainer.style.cssText = \`
                             flex: 1;
-                            min-height: 500px;
+                            min-height: 400px;
                             background: var(--vscode-editor-background);
                             border: 1px solid var(--vscode-panel-border);
                             border-radius: 8px;
@@ -632,6 +634,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                             align-items: center;
                             justify-content: center;
                             position: relative;
+                            resize: both;
+                            overflow: hidden;
                         \`;
 
                         chartContainer.innerHTML = \`
@@ -717,6 +721,34 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         const executeJS = new Function('data', 'Plotly', 'container', \`
                             try {
                                 \${jsCode.replace('visualization-container', 'step-chart-container')}
+
+                                // Enable responsive behavior and auto-resize after plot creation
+                                setTimeout(() => {
+                                    const plotElement = document.getElementById('step-chart-container');
+                                    if (plotElement && plotElement.data) {
+                                        // Make plot responsive
+                                        Plotly.Plots.resize(plotElement);
+
+                                        // Add ResizeObserver for automatic resizing
+                                        if (window.ResizeObserver && !plotElement.resizeObserver) {
+                                            const resizeObserver = new ResizeObserver(entries => {
+                                                for (let entry of entries) {
+                                                    if (entry.target === plotElement.parentElement) {
+                                                        Plotly.Plots.resize(plotElement);
+                                                    }
+                                                }
+                                            });
+                                            resizeObserver.observe(plotElement.parentElement);
+                                            plotElement.resizeObserver = resizeObserver;
+                                        }
+
+                                        // Update container style to fill available space
+                                        plotElement.parentElement.style.display = 'block';
+                                        plotElement.parentElement.style.height = 'auto';
+                                        plotElement.parentElement.style.minHeight = '400px';
+                                    }
+                                }, 100);
+
                                 return true;
                             } catch (error) {
                                 console.error('Visualization error:', error);

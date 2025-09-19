@@ -237,6 +237,9 @@ export class ReportGenerator {
                 border-radius: 6px;
                 padding: 10px;
                 margin-top: 15px;
+                width: 100%;
+                overflow: auto;
+                resize: both;
             }
             .code-block {
                 background: #f8f9fa;
@@ -337,6 +340,29 @@ export class ReportGenerator {
                                 try {
                                     const container = document.getElementById('viz-${step.id}');
                                     ${step.jsCode.replace(/`/g, '\\`').replace(/\$\{/g, '\\$\\{')}
+
+                                    // Enable responsive behavior for exported charts
+                                    setTimeout(() => {
+                                        const plotElement = document.getElementById('viz-${step.id}');
+                                        if (plotElement && plotElement.data && window.Plotly) {
+                                            // Make plot responsive
+                                            Plotly.Plots.resize(plotElement);
+
+                                            // Add ResizeObserver for automatic resizing
+                                            if (window.ResizeObserver && !plotElement.resizeObserver) {
+                                                const resizeObserver = new ResizeObserver(entries => {
+                                                    Plotly.Plots.resize(plotElement);
+                                                });
+                                                resizeObserver.observe(plotElement);
+                                                plotElement.resizeObserver = resizeObserver;
+                                            }
+
+                                            // Handle window resize events
+                                            window.addEventListener('resize', () => {
+                                                Plotly.Plots.resize(plotElement);
+                                            });
+                                        }
+                                    }, 100);
                                 } catch (error) {
                                     console.error('Visualization error for step ${step.title}:', error);
                                     document.getElementById('viz-${step.id}').innerHTML = '<div style="color: red; padding: 20px;">Visualization Error: ' + error.message + '</div>';
