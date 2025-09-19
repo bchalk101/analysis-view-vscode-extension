@@ -43,11 +43,9 @@ export class ReportGenerator {
             }
             ErrorReportingService.logInfo(`Generated content length: ${content.length}`, 'export');
 
-            // Generate filename with timestamp
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
             const filename = `analysis-report-${timestamp}.${fileExtension}`;
 
-            // Save to file - use workspace folder or home directory as default
             const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
             const defaultPath = workspaceFolder ?
                 vscode.Uri.joinPath(workspaceFolder, filename) :
@@ -67,7 +65,6 @@ export class ReportGenerator {
                 await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf8'));
                 vscode.window.showInformationMessage(`Report exported successfully to ${uri.fsPath}`);
 
-                // Ask if user wants to open the file
                 const action = await vscode.window.showInformationMessage(
                     'Would you like to open the exported report?',
                     'Open'
@@ -104,7 +101,6 @@ export class ReportGenerator {
     }
 
     private _generatePDFReadyReport(report: CompleteReport): string {
-        // Generate a PDF-optimized version with print styles
         return this._generateHTMLReport(report).replace(
             '<style>',
             '<style>\n        @page { size: A4; margin: 1in; }\n        body { print-color-adjust: exact; }'

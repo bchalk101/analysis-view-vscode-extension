@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, StoryState, ExportFormat } from './types';
 import { CopilotIntegration } from './CopilotIntegration';
-import { ErrorReportingService } from './ValidationService';
 import { ReportGenerator } from './ReportGenerator';
 
 export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvider {
@@ -18,7 +17,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         selectedMcpServer: undefined
     };
     private _copilotIntegration: CopilotIntegration;
-    private _currentChatHistory: vscode.LanguageModelChatMessage[] = [];
     private _currentChatProgress: ChatProgressStep[] = [];
     private _currentCancellationTokenSource?: vscode.CancellationTokenSource;
     private _storyState: StoryState = {
@@ -73,7 +71,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     break;
                 case 'clearChatProgress':
                     this._currentChatProgress = [];
-                    this._currentChatHistory = [];
                     this._view?.webview.postMessage({
                         type: 'chatProgress',
                         chatProgress: this._currentChatProgress
@@ -84,7 +81,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     this._config.customJS = '';
                     this._config.description = '';
                     this._currentChatProgress = [];
-                    this._currentChatHistory = [];
                     this._storyState = { currentStepIndex: 0, isStoryMode: false };
                     this._view?.webview.postMessage({
                         type: 'configCleared',
@@ -102,8 +98,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 case 'navigateStory':
                     this._navigateStory(data.storyNavigation!);
                     break;
-                case 'toggleStoryMode':
-                    this._toggleStoryMode(data.storyMode || false);
+                case 'autoFixVisualization':
+                    this._handleAutoFixVisualization(data);
                     break;
             }
         });
@@ -228,7 +224,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 this._config.datasetPath,
                 this._config.selectedModel,
                 this._config.selectedMcpServer,
-                this._currentChatHistory,
                 (step: ChatProgressStep) => {
                     if (!this._currentCancellationTokenSource?.token.isCancellationRequested) {
                         this._currentChatProgress.push(step);
@@ -269,14 +264,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 message: 'Validating story steps...'
             });
 
-
             this._view?.webview.postMessage({
                 type: 'progress',
                 status: 'completed',
                 message: 'Data story generated and validated successfully!'
             });
 
-            // Open execution panel immediately, then execute the first step
             this.openExecutionPanel();
             this._executeCurrentStoryStep();
 
@@ -325,22 +318,55 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             storyState: this._storyState
         });
 
-        // Open panel immediately, then execute step
         this.openExecutionPanel();
         this._executeCurrentStoryStep();
     }
 
-    private _toggleStoryMode(enabled: boolean) {
-        this._storyState.isStoryMode = enabled;
-        if (!enabled) {
-            this._storyState.currentStory = undefined;
-            this._storyState.currentStepIndex = 0;
-        }
+    private async _handleAutoFixVisualization(data: any) {
+        try {
+            const { jsCode, error, step, chartData, dataPreview } = data;
 
-        this._view?.webview.postMessage({
-            type: 'storyStateUpdated',
-            storyState: this._storyState
-        });
+            const dataContext = {
+                rows: chartData.rows,
+                columnNames: chartData.columnNames,
+                sampleRows: dataPreview.sampleRows,
+                rowCount: dataPreview.rowCount,
+                columnTypes: dataPreview.columnTypes
+            };
+
+            const fixedCode = await this._copilotIntegration.fixJavaScriptCode(
+                jsCode,
+                error,
+                step,
+                dataContext,
+                this._config.selectedModel,
+            );
+
+            if (fixedCode && this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'executeFixedVisualization',
+                    fixedJsCode: fixedCode,
+                    step: step,
+                    data: chartData,
+                    fixAttempted: true
+                });
+            } else if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'autoFixFailed',
+                    originalError: error,
+                    step: step
+                });
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (this._panel) {
+                this._panel.webview.postMessage({
+                    type: 'autoFixFailed',
+                    originalError: errorMessage,
+                    step: data.step
+                });
+            }
+        }
     }
 
     private async _executeCurrentStoryStep() {
@@ -350,7 +376,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         if (!currentStep) return;
 
         try {
-            // Show loading state immediately
             if (this._panel) {
                 this._panel.webview.postMessage({
                     type: 'showLoadingState',
@@ -358,7 +383,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 });
             }
 
-            const data = await this.executeSQLWithMCPReaderService(
+            const data = await this._copilotIntegration.executeSQLWithMCPReaderService(
                 currentStep.sqlQuery,
                 this._storyState.currentStory.datasetPath
             );
@@ -380,66 +405,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 });
             }
             vscode.window.showErrorMessage(`Failed to execute story step: ${errorMessage}`);
-        }
-    }
-
-    private async executeSQLWithMCPReaderService(sqlQuery: string, datasetPath: string): Promise<ChartData> {
-        try {
-            const toolResult = await vscode.lm.invokeTool(
-                'mcp_reader-servic_query_dataset',
-                {
-                    input: {
-                        datasets: [
-                            {
-                                name: 'Base',
-                                path: datasetPath,
-                                sql: sqlQuery
-                            }
-                        ],
-                        limit: 1000,
-                        result_only: true
-                    },
-                    toolInvocationToken: undefined,
-                },
-                this._currentCancellationTokenSource?.token || new vscode.CancellationTokenSource().token
-            );
-
-            let resultData: any = {};
-            for (const contentItem of toolResult.content) {
-                const typedContent = contentItem as vscode.LanguageModelTextPart;
-                try {
-                    let rawData = typedContent.value;
-
-                    if (rawData.startsWith('Error') || rawData.includes('error') || rawData.includes('Error')) {
-                        throw new Error(`MCP tool returned error: ${rawData}`);
-                    }
-
-                    rawData = rawData.replace(/^Sample data:\s*/, '');
-                    const data = JSON.parse(rawData);
-                    if (Array.isArray(data)) {
-                        resultData = data[0];
-                    } else {
-                        resultData = data;
-                    }
-                } catch (parseError) {
-                    console.error(parseError);
-                    ErrorReportingService.logInfo(`Could not parse tool result as JSON: ${typedContent.value}`);
-                    resultData = typedContent.value;
-                }
-            }
-            let columnNames: string[] = [];
-            if (Array.isArray(resultData) && resultData.length > 0 && typeof resultData[0] === 'object') {
-                columnNames = Object.keys(resultData[0]);
-            } else if (typeof resultData === 'string') {
-                columnNames = ['data'];
-                resultData = [{ data: resultData }];
-            }
-            return {
-                rows: resultData,
-                columnNames: columnNames
-            };
-        } catch (error) {
-            throw new Error(`MCP Reader Service execution failed: ${error}`);
         }
     }
 
@@ -525,9 +490,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 window.addEventListener('message', event => {
                     const message = event.data;
                     switch (message.type) {
-                        case 'executeVisualization':
-                            executeVisualizationInPanel(message.data, message.config);
-                            break;
                         case 'executeStoryStep':
                             executeStoryStepInPanel(message.data, message.step);
                             break;
@@ -543,44 +505,17 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                                 success: visualizationSuccess
                             });
                             break;
+                        case 'executeFixedVisualization':
+                            executeFixedVisualization(message.fixedJsCode, message.data, message.step, message.fixAttempted);
+                            break;
+                        case 'autoFixFailed':
+                            showAutoFixFailed(message.originalError, message.step);
+                            break;
+                        case 'showSQLFixing':
+                            showSQLFixingState(message.step, message.error);
+                            break;
                     }
                 });
-                
-                function executeVisualizationInPanel(data, config) {
-                    try {
-                        const container = document.getElementById('visualization-container');
-                        container.innerHTML = '';
-                        
-                        if (config.customJS) {
-                            try {
-                                const executeJS = new Function('data', 'Plotly', 'container', \`
-                                    try {                                                                                
-                                        \${config.customJS}
-                                        return true;
-                                    } catch (error) {
-                                        console.error('Visualization error:', error);
-                                        container.innerHTML = '<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;"><strong>Visualization Error:</strong><br>' + error.message + '</div>';
-                                        return false;
-                                    }
-                                \`);
-                                
-                                visualizationSuccess = executeJS(data.rows, Plotly, 'visualization-container');
-                            } catch (error) {
-                                console.error('Execution error:', error);
-                                container.innerHTML = \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error: \${error.message}</div>\`;
-                                visualizationSuccess = false;
-                            }
-                        } else {
-                            container.innerHTML = '<div class="empty-state">No visualization code available</div>';
-                            visualizationSuccess = false;
-                        }
-                        
-                    } catch (error) {
-                        document.getElementById('visualization-container').innerHTML = 
-                            \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error: \${error.message}</div>\`;
-                        visualizationSuccess = false;
-                    }
-                }
                 
                 function executeStoryStepInPanel(data, step) {
                     try {
@@ -633,24 +568,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         container.appendChild(chartContainer);
                         
                         if (step.jsCode) {
-                            try {
-                                const executeJS = new Function('data', 'Plotly', 'container', \`
-                                    try {                                                                                
-                                        \${step.jsCode.replace('visualization-container', 'step-chart-container')}
-                                        return true;
-                                    } catch (error) {
-                                        console.error('Visualization error:', error);
-                                        document.getElementById('step-chart-container').innerHTML = '<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;"><strong>Visualization Error:</strong><br>' + error.message + '</div>';
-                                        return false;
-                                    }
-                                \`);
-                                
-                                visualizationSuccess = executeJS(data.rows, Plotly, 'step-chart-container');
-                            } catch (error) {
-                                console.error('Execution error:', error);
-                                chartContainer.innerHTML = \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error: \${error.message}</div>\`;
-                                visualizationSuccess = false;
-                            }
+                            visualizationSuccess = executeVisualizationCode(step.jsCode, data, step, chartContainer, false);
                         } else {
                             chartContainer.innerHTML = '<div class="empty-state">No visualization code available for this step</div>';
                             visualizationSuccess = false;
@@ -790,6 +708,176 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         console.error('Error showing error state:', error);
                         document.getElementById('visualization-container').innerHTML =
                             \`<div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">Error displaying error state: \${error.message}</div>\`;
+                    }
+                }
+
+                // Helper function to execute visualization code with auto-fix capability
+                function executeVisualizationCode(jsCode, data, step, chartContainer, isFixAttempt = false) {
+                    try {
+                        const executeJS = new Function('data', 'Plotly', 'container', \`
+                            try {
+                                \${jsCode.replace('visualization-container', 'step-chart-container')}
+                                return true;
+                            } catch (error) {
+                                console.error('Visualization error:', error);
+                                throw error;
+                            }
+                        \`);
+
+                        const success = executeJS(data.rows, Plotly, 'step-chart-container');
+                        return success;
+                    } catch (error) {
+                        console.error('Execution error:', error);
+
+                        if (!isFixAttempt) {
+                            // Show fixing message and attempt auto-fix
+                            chartContainer.innerHTML = \`
+                                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px;">
+                                    <div style="width: 32px; height: 32px; border: 3px solid var(--vscode-panel-border); border-top: 3px solid var(--vscode-button-background); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 16px;"></div>
+                                    <div style="color: var(--vscode-foreground); font-size: 14px; margin-bottom: 8px;">🔧 Attempting to fix visualization...</div>
+                                    <div style="color: var(--vscode-descriptionForeground); font-size: 12px;">Analyzing data structure and error details</div>
+                                </div>
+                            \`;
+
+                            // Prepare data context for auto-fix
+                            const dataPreview = prepareDataPreview(data);
+
+                            // Send auto-fix request to extension
+                            vscode.postMessage({
+                                type: 'autoFixVisualization',
+                                jsCode: jsCode,
+                                error: error.message,
+                                step: step,
+                                chartData: data,
+                                dataPreview: dataPreview
+                            });
+                        } else {
+                            // Fix attempt failed, show original error
+                            chartContainer.innerHTML = \`
+                                <div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">
+                                    <div style="margin-bottom: 12px;">⚠️ <strong>Auto-fix attempted but failed</strong></div>
+                                    <div style="margin-bottom: 8px;"><strong>Original Error:</strong></div>
+                                    <div style="font-family: monospace; background: rgba(255,0,0,0.1); padding: 8px; border-radius: 4px;">\${error.message}</div>
+                                </div>
+                            \`;
+                        }
+                        return false;
+                    }
+                }
+
+                // Helper function to prepare data preview for LLM context
+                function prepareDataPreview(data) {
+                    const sampleRows = data.rows.slice(0, 5); // First 5 rows
+                    const columnTypes = {};
+
+                    // Infer column types from first few rows
+                    if (data.rows.length > 0 && data.columnNames) {
+                        data.columnNames.forEach(colName => {
+                            const sampleValues = data.rows.slice(0, 10).map(row => row[colName]).filter(val => val != null);
+                            if (sampleValues.length > 0) {
+                                const firstValue = sampleValues[0];
+                                if (typeof firstValue === 'number') {
+                                    columnTypes[colName] = 'number';
+                                } else if (typeof firstValue === 'boolean') {
+                                    columnTypes[colName] = 'boolean';
+                                } else if (firstValue instanceof Date || (!isNaN(Date.parse(firstValue)) && typeof firstValue === 'string')) {
+                                    columnTypes[colName] = 'date';
+                                } else {
+                                    columnTypes[colName] = 'string';
+                                }
+                            }
+                        });
+                    }
+
+                    return {
+                        sampleRows: sampleRows,
+                        rowCount: data.rows.length,
+                        columnTypes: columnTypes
+                    };
+                }
+
+                // Function to execute fixed visualization code
+                function executeFixedVisualization(fixedJsCode, data, step, fixAttempted) {
+                    const chartContainer = document.getElementById('step-chart-container');
+                    if (chartContainer) {
+                        visualizationSuccess = executeVisualizationCode(fixedJsCode, data, step, chartContainer, true);
+                    }
+                }
+
+                // Function to show auto-fix failure
+                function showAutoFixFailed(originalError, step) {
+                    const chartContainer = document.getElementById('step-chart-container');
+                    if (chartContainer) {
+                        chartContainer.innerHTML = \`
+                            <div style="color: var(--vscode-errorForeground); padding: 20px; text-align: center; font-size: 13px;">
+                                <div style="margin-bottom: 12px;">⚠️ <strong>Unable to auto-fix visualization</strong></div>
+                                <div style="margin-bottom: 8px;"><strong>Original Error:</strong></div>
+                                <div style="font-family: monospace; background: rgba(255,0,0,0.1); padding: 8px; border-radius: 4px;">\${originalError}</div>
+                                <div style="margin-top: 12px; font-size: 11px; opacity: 0.8;">The LLM was unable to automatically fix this visualization code.</div>
+                            </div>
+                        \`;
+                    }
+                    visualizationSuccess = false;
+                }
+
+                // Function to show SQL fixing state
+                function showSQLFixingState(step, error) {
+                    try {
+                        const container = document.getElementById('visualization-container');
+                        container.innerHTML = '';
+
+                        // Add story step header
+                        const stepHeader = document.createElement('div');
+                        stepHeader.style.cssText = \`
+                            background: linear-gradient(135deg, var(--vscode-sideBar-background) 0%, var(--vscode-editor-background) 100%);
+                            padding: 20px 24px;
+                            border-bottom: 2px solid var(--vscode-button-background);
+                            margin-bottom: 24px;
+                            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+                        \`;
+                        stepHeader.innerHTML = \`
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                                <h1 style="margin: 0; font-size: 20px; font-weight: 700; color: var(--vscode-foreground); text-shadow: 0 1px 2px rgba(0,0,0,0.1);">\${step.title}</h1>
+                                <div style="display: flex; gap: 8px; align-items: center;">
+                                    <span style="background: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 6px 12px; border-radius: 6px; font-size: 11px; text-transform: uppercase; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">Fixing SQL</span>
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <h3 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600; color: var(--vscode-foreground); opacity: 0.9;">Analysis Overview</h3>
+                                <p style="margin: 0; color: var(--vscode-descriptionForeground); font-size: 14px; line-height: 1.6; font-weight: 400;">\${step.description}</p>
+                            </div>
+                        \`;
+                        container.appendChild(stepHeader);
+
+                        // Create fixing area
+                        const fixingContainer = document.createElement('div');
+                        fixingContainer.id = 'sql-fixing-container';
+                        fixingContainer.style.cssText = \`
+                            flex: 1;
+                            background: var(--vscode-editor-background);
+                            border: 1px solid var(--vscode-panel-border);
+                            border-radius: 8px;
+                            padding: 24px;
+                            margin: 0 8px 16px 8px;
+                            text-align: center;
+                        \`;
+
+                        fixingContainer.innerHTML = \`
+                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px;">
+                                <div style="width: 48px; height: 48px; border: 4px solid var(--vscode-panel-border); border-top: 4px solid var(--vscode-button-background); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 24px;"></div>
+                                <div style="color: var(--vscode-foreground); font-size: 18px; font-weight: 600; margin-bottom: 12px;">🔧 Fixing SQL Query</div>
+                                <div style="color: var(--vscode-descriptionForeground); font-size: 14px; margin-bottom: 16px; max-width: 400px; line-height: 1.5;">The SQL query failed. Analyzing the error and generating a corrected version...</div>
+                                <div style="background: var(--vscode-inputValidation-errorBackground); border: 1px solid var(--vscode-inputValidation-errorBorder); border-radius: 6px; padding: 12px; margin-top: 16px; max-width: 500px;">
+                                    <div style="color: var(--vscode-inputValidation-errorForeground); font-size: 12px; margin-bottom: 8px; font-weight: 600;">SQL Error:</div>
+                                    <code style="color: var(--vscode-inputValidation-errorForeground); font-family: var(--vscode-editor-font-family); font-size: 11px; line-height: 1.4; display: block; white-space: pre-wrap; word-break: break-word;">\${error}</code>
+                                </div>
+                            </div>
+                        \`;
+
+                        container.appendChild(fixingContainer);
+
+                    } catch (error) {
+                        console.error('Error showing SQL fixing state:', error);
                     }
                 }
             </script>
@@ -1584,7 +1672,6 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     const toggleDropdown = () => {
                         const isOpen = customSelect.classList.contains('open');
                         
-                        // Close all dropdowns first
                         document.querySelectorAll('.custom-select').forEach(select => {
                             select.classList.remove('open');
                         });

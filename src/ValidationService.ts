@@ -60,7 +60,6 @@ export class PerformanceMonitor {
         
         ErrorReportingService.logInfo(`Operation '${operationName}' completed in ${duration}ms`, 'Performance');
         
-        // Warn about slow operations
         if (duration > 1000) {
             ErrorReportingService.logWarning(`Operation '${operationName}' took ${duration}ms - consider optimization`, 'Performance');
         }
