@@ -1,0 +1,12 @@
+# Example Terraform variables file
+# Copy this to terraform.tfvars and update with your values
+
+project_id                    = "your-gcp-project-id"
+region                       = "us-central1"
+mcp_service_name             = "analysis-mcp-server"
+query_engine_service_name    = "query-engine-service"
+gcs_bucket_name             = "your-unique-bucket-name"  # Must be globally unique
+
+# Database password removed - using SQLite with GCS backup for cost savings
+# If you need to switch back to PostgreSQL, uncomment the line below:
+# db_password                 = "your-secure-database-password"

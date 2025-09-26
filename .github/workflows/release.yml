@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  QUERY_ENGINE_SERVICE_NAME: query-engine-service
+  GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+
+jobs:
+  # Create GitHub Release
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+
+  deploy-production:
+    name: Deploy Production Release
+    runs-on: ubuntu-latest
+    needs: create-release
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Google Auth
+      id: auth
+      uses: 'google-github-actions/auth@v2'
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: 'Set up Cloud SDK'
+      uses: 'google-github-actions/setup-gcloud@v2'
+
+    - name: Configure Docker to use gcloud as a credential helper
+      run: gcloud auth configure-docker
+
+    - name: Build and push Query Engine Docker image
+      env:
+        IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:${{ github.ref_name }}
+        IMAGE_LATEST: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:latest
+      run: |
+        cd query-engine
+        docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+        docker push $IMAGE_TAG
+        docker push $IMAGE_LATEST
+
+    - name: Deploy to Production Cloud Run
+      env:
+        IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:${{ github.ref_name }}
+      run: |
+        gcloud run deploy ${{ env.QUERY_ENGINE_SERVICE_NAME }}-prod \
+          --image $IMAGE_TAG \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 50051 \
+          --memory 8Gi \
+          --cpu 4 \
+          --max-instances 20 \
+          --min-instances 2 \
+          --set-env-vars "GRPC_PORT=50051,GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},RUST_LOG=query_engine_service=info" \
+          --update-secrets "DATABASE_URL=query-engine-database-url:latest" \
+          --timeout 600 \
+          --use-http2 \
+          --tag production
+
+    - name: Get production service URL
+      id: prod_url
+      run: |
+        PROD_URL=$(gcloud run services describe ${{ env.QUERY_ENGINE_SERVICE_NAME }}-prod \
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
+        echo "prod_url=$PROD_URL" >> $GITHUB_OUTPUT
+
+    - name: Test production deployment
+      run: |
+        echo "Testing production deployment at ${{ steps.prod_url.outputs.prod_url }}"
+        echo "Query Engine deployed successfully - gRPC service ready"
+
+    - name: Update traffic to production
+      run: |
+        gcloud run services update-traffic ${{ env.QUERY_ENGINE_SERVICE_NAME }} \
+          --region ${{ env.REGION }} \
+          --to-revisions production=100

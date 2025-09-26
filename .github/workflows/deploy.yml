@@ -1,0 +1,98 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'query-engine/**'
+      - 'deployment/**'
+      - '.github/workflows/deploy.yml'
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  QUERY_ENGINE_SERVICE_NAME: query-engine-service
+  GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+
+jobs:
+  deploy-query-engine:
+    name: Deploy Query Engine
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    outputs:
+      query_engine_url: ${{ steps.query-engine-url.outputs.service_url }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Google Auth
+      id: auth
+      uses: 'google-github-actions/auth@v2'
+      with:
+        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+    - name: 'Set up Cloud SDK'
+      uses: 'google-github-actions/setup-gcloud@v2'
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "~1.0"
+
+    - name: Configure Docker to use gcloud as a credential helper
+      run: gcloud auth configure-docker
+
+    - name: Build and push Query Engine Docker image
+      env:
+        IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:${{ github.sha }}
+        IMAGE_LATEST: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:latest
+      run: |
+        cd query-engine
+        docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+        docker push $IMAGE_TAG
+        docker push $IMAGE_LATEST
+
+    - name: Deploy infrastructure with Terraform
+      working-directory: ./deployment/terraform
+      env:
+        TF_VAR_project_id: ${{ env.PROJECT_ID }}
+        TF_VAR_region: ${{ env.REGION }}
+        TF_VAR_gcs_bucket_name: ${{ env.GCS_BUCKET_NAME }}
+        TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+      run: |
+        terraform init
+        terraform plan
+        terraform apply -auto-approve
+
+    - name: Deploy Query Engine to Cloud Run
+      env:
+        IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:${{ github.sha }}
+      run: |
+        gcloud run deploy ${{ env.QUERY_ENGINE_SERVICE_NAME }} \
+          --image $IMAGE_TAG \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --port 50051 \
+          --memory 8Gi \
+          --cpu 4 \
+          --max-instances 5 \
+          --min-instances 1 \
+          --set-env-vars "GRPC_PORT=50051,GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},RUST_LOG=query_engine_service=info" \
+          --update-secrets "DATABASE_URL=query-engine-database-url:latest" \
+          --timeout 600 \
+          --use-http2
+
+    - name: Get Query Engine service URL
+      id: query-engine-url
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ env.QUERY_ENGINE_SERVICE_NAME }} \
+          --region ${{ env.REGION }} \
+          --format 'value(status.url)')
+        echo "service_url=$SERVICE_URL" >> $GITHUB_OUTPUT

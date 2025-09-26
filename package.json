@@ -121,6 +121,11 @@
               }
             }
           }
+        },
+        "analysisViewPlayground.mcpServerUrl": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "URL of the Analysis MCP server for data queries"
         }
       }
     }
