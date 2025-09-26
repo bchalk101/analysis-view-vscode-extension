@@ -5,6 +5,6 @@ module.exports = defineConfig({
   extensionDevelopmentPath: __dirname,
   launchArgs: [
     '--enable-proposed-api',
-    "--disable-workspace-trust",
+    '--disable-workspace-trust',
   ]
 });

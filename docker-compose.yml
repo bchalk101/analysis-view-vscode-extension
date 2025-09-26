@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=analysis_catalog
+      - POSTGRES_USER=analysis_user
+      - POSTGRES_PASSWORD=analysis_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - analysis-network
+
+  query-engine:
+    build:
+      context: ./query-engine
+      dockerfile: Dockerfile
+    environment:
+      - GRPC_PORT=50051
+      - GCS_BUCKET_NAME=agentic_analytics_datasets
+      - DATABASE_URL=postgresql://analysis_user:analysis_password@postgres:5432/analysis_catalog
+      - RUST_LOG=query_engine_service=debug
+    ports:
+      - "50051:50051"
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - postgres
+    networks:
+      - analysis-network
+
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    environment:
+      - MCP_PORT=8080
+      - QUERY_ENGINE_ENDPOINT=http://query-engine:50051
+      - RUST_LOG=mcp_server=debug
+    ports:
+      - "8080:8080"
+    depends_on:
+      - query-engine
+    networks:
+      - analysis-network
+
+networks:
+  analysis-network:
+    driver: bridge
+
+volumes:
+  analysis-data:
+  postgres_data:

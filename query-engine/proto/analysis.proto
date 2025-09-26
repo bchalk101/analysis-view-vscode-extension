@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package analysis;
+
+service AnalysisService {
+  rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+
+  rpc GetMetadata(GetMetadataRequest) returns (GetMetadataResponse);
+
+  rpc ExecuteQuery(ExecuteQueryRequest) returns (stream ExecuteQueryResponse);
+
+  rpc AddDataset(AddDatasetRequest) returns (AddDatasetResponse);
+
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message ListDatasetsRequest {}
+
+message ListDatasetsResponse {
+  repeated Dataset datasets = 1;
+}
+
+message GetMetadataRequest {
+  string dataset_id = 1;
+}
+
+message GetMetadataResponse {
+  DatasetMetadata metadata = 1;
+}
+
+message ExecuteQueryRequest {
+  string dataset_id = 1;
+  string sql_query = 2;
+  int32 limit = 3;
+}
+
+message AddDatasetRequest {
+  string name = 1;              // Required: Human-readable name
+  string source_path = 2;       // Required: S3/GCS path (e.g., "s3://bucket/file.csv", "gs://bucket/file.parquet")
+  string description = 3;       // Optional: Dataset description
+  repeated string tags = 5;     // Optional: Tags for organization
+  string format = 6;            // Optional: "csv" or "parquet" (auto-detected if not provided)
+}
+
+message AddDatasetResponse {
+  bool success = 1;
+  string dataset_id = 2;        // Generated unique ID for the dataset
+  string message = 3;           // Success/error message
+  Dataset dataset = 4;          // Dataset metadata if successful
+}
+
+message ExecuteQueryResponse {
+  oneof response_type {
+    // First message contains schema and metadata
+    QueryMetadata metadata = 1;
+    // Subsequent messages contain data chunks
+    QueryDataChunk data_chunk = 2;
+    // Final message indicates completion with summary
+    QueryComplete complete = 3;
+  }
+}
+
+message QueryMetadata {
+  bytes arrow_schema = 1;
+  repeated string column_names = 2;
+  int32 estimated_rows = 3; // Estimated total rows if known
+}
+
+message QueryDataChunk {
+  bytes arrow_ipc_data = 1;
+  int32 chunk_rows = 2; // Number of rows in this chunk
+  int32 chunk_index = 3; // Sequential chunk number
+}
+
+message QueryComplete {
+  int32 total_rows = 1;
+  string execution_time_ms = 2;
+  bool success = 3;
+  string error_message = 4; // Only present if success = false
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+  string version = 2;
+}
+
+message Dataset {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string file_path = 5;
+  string format = 6;
+  int64 size_bytes = 7;
+  int32 row_count = 8;
+  repeated string tags = 9;
+  string created_at = 10;
+  string updated_at = 11;
+}
+
+message DatasetMetadata {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated ColumnInfo columns = 5;
+  int32 row_count = 6;
+  int64 size_bytes = 7;
+  string format = 8;
+  repeated string tags = 9;
+  map<string, string> statistics = 10;
+  string created_at = 11;
+  string updated_at = 12;
+}
+
+message ColumnInfo {
+  string name = 1;
+  string data_type = 2;
+  bool nullable = 3;
+  string description = 4;
+  map<string, string> statistics = 5;
+}

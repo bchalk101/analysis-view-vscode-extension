@@ -1,0 +1,7 @@
+- Only implement functions that are used and requried for the current functionaility
+- Dont use comments ever
+- Functions should be easily understandable
+- When asked to change a feature, dont support backward compatibility
+- Dont over implement, keep the paths simple, only implement a single solution for each problem, even if it isnt optimzed for one of them
+- When implenting a new feature, check if there is now code that should be deleted
+- All tests should follow BDD, with explicity Given, When and Then written into the tests
