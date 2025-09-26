@@ -1,10 +1,10 @@
-use diesel::prelude::*;
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use diesel::prelude::*;
 use std::collections::HashMap;
+use uuid::Uuid;
 
-use crate::schema::{datasets, dataset_files, dataset_columns, dataset_statistics};
-use crate::catalog::{DataFormat, CatalogDatasetEntry, DatasetFile, ColumnMetadata};
+use crate::catalog::{CatalogDatasetEntry, ColumnMetadata, DataFormat, DatasetFile};
+use crate::schema::{dataset_columns, dataset_files, dataset_statistics, datasets};
 
 #[derive(Queryable, Selectable, Identifiable, Debug, Clone)]
 #[diesel(table_name = datasets)]
@@ -146,8 +146,8 @@ impl From<DatasetFileModel> for DatasetFile {
 
 impl From<DatasetColumnModel> for ColumnMetadata {
     fn from(column: DatasetColumnModel) -> Self {
-        let statistics: HashMap<String, String> = serde_json::from_value(column.statistics)
-            .unwrap_or_default();
+        let statistics: HashMap<String, String> =
+            serde_json::from_value(column.statistics).unwrap_or_default();
 
         ColumnMetadata {
             name: column.name,

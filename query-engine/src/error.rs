@@ -58,18 +58,12 @@ impl From<diesel::result::Error> for AnalysisError {
 impl From<AnalysisError> for tonic::Status {
     fn from(err: AnalysisError) -> Self {
         match err {
-            AnalysisError::DatasetNotFound { .. } => {
-                tonic::Status::not_found(err.to_string())
-            }
+            AnalysisError::DatasetNotFound { .. } => tonic::Status::not_found(err.to_string()),
             AnalysisError::InvalidSqlQuery { .. } => {
                 tonic::Status::invalid_argument(err.to_string())
             }
-            AnalysisError::QueryExecutionFailed { .. } => {
-                tonic::Status::internal(err.to_string())
-            }
-            AnalysisError::ConfigError { .. } => {
-                tonic::Status::invalid_argument(err.to_string())
-            }
+            AnalysisError::QueryExecutionFailed { .. } => tonic::Status::internal(err.to_string()),
+            AnalysisError::ConfigError { .. } => tonic::Status::invalid_argument(err.to_string()),
             _ => tonic::Status::internal(err.to_string()),
         }
     }

@@ -64,7 +64,12 @@ impl From<QueryDataChunk> for analysis::QueryDataChunk {
 }
 
 impl QueryStreamResult {
-    pub fn into_proto_parts(self) -> (Option<analysis::QueryMetadata>, Vec<analysis::QueryDataChunk>) {
+    pub fn into_proto_parts(
+        self,
+    ) -> (
+        Option<analysis::QueryMetadata>,
+        Vec<analysis::QueryDataChunk>,
+    ) {
         let metadata = self.metadata.map(|m| m.into());
         let chunks = self.chunks.into_iter().map(|c| c.into()).collect();
         (metadata, chunks)

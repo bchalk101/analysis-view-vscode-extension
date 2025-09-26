@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
-use tracing::{info, error};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod proto {
@@ -10,17 +10,17 @@ pub mod proto {
     }
 }
 
+mod catalog;
+mod database;
+mod datafusion_engine;
+mod dataset_manager;
 mod domain;
 mod engine;
-mod datafusion_engine;
-mod grpc_server;
-mod dataset_manager;
 mod error;
-mod catalog;
-mod storage;
-mod database;
-mod schema;
+mod grpc_server;
 mod models;
+mod schema;
+mod storage;
 
 use engine::AnalysisEngine;
 use grpc_server::GrpcServer;
@@ -42,16 +42,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .parse()
         .expect("Invalid GRPC_PORT");
 
-    let bucket_name = std::env::var("GCS_BUCKET_NAME")
-        .expect("GCS_BUCKET_NAME environment variable is required");
+    let bucket_name =
+        std::env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME environment variable is required");
 
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL environment variable is required");
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable is required");
 
     info!("Configuration loaded:");
     info!("  gRPC Port: {}", grpc_port);
     info!("  GCS Bucket: {}", bucket_name);
-    info!("  Database URL: {}", database_url.replace(&database_url[database_url.find("://").unwrap()+3..database_url.rfind("@").unwrap()], "***"));
+    info!(
+        "  Database URL: {}",
+        database_url.replace(
+            &database_url[database_url.find("://").unwrap() + 3..database_url.rfind("@").unwrap()],
+            "***"
+        )
+    );
 
     let engine = Arc::new(AnalysisEngine::new(bucket_name, database_url).await?);
     info!("Analysis engine initialized successfully");

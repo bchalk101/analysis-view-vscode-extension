@@ -1,21 +1,18 @@
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
-use tracing::{info, error};
+use tracing::{error, info};
 
-use crate::proto::analysis::{
-    analysis_service_server::{AnalysisService, AnalysisServiceServer},
-    ListDatasetsRequest, ListDatasetsResponse,
-    GetMetadataRequest, GetMetadataResponse,
-    ExecuteQueryRequest, ExecuteQueryResponse,
-    AddDatasetRequest, AddDatasetResponse,
-    HealthCheckRequest, HealthCheckResponse,
-    QueryComplete,
-};
-use tokio_stream::wrappers::ReceiverStream;
-use tokio::sync::mpsc;
 use crate::engine::AnalysisEngine;
 use crate::error::AnalysisError;
+use crate::proto::analysis::{
+    analysis_service_server::{AnalysisService, AnalysisServiceServer},
+    AddDatasetRequest, AddDatasetResponse, ExecuteQueryRequest, ExecuteQueryResponse,
+    GetMetadataRequest, GetMetadataResponse, HealthCheckRequest, HealthCheckResponse,
+    ListDatasetsRequest, ListDatasetsResponse, QueryComplete,
+};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 pub struct GrpcServer {
     engine: Arc<AnalysisEngine>,
@@ -68,7 +65,10 @@ impl AnalysisService for AnalysisServiceImpl {
         request: Request<GetMetadataRequest>,
     ) -> Result<Response<GetMetadataResponse>, Status> {
         let req = request.into_inner();
-        info!("gRPC: Received get_metadata request for dataset '{}'", req.dataset_id);
+        info!(
+            "gRPC: Received get_metadata request for dataset '{}'",
+            req.dataset_id
+        );
 
         match self.engine.get_metadata(&req.dataset_id).await {
             Ok(metadata) => {
@@ -78,7 +78,10 @@ impl AnalysisService for AnalysisServiceImpl {
                 }))
             }
             Err(e) => {
-                error!("gRPC: Failed to get metadata for dataset '{}': {}", req.dataset_id, e);
+                error!(
+                    "gRPC: Failed to get metadata for dataset '{}': {}",
+                    req.dataset_id, e
+                );
                 Err(Status::from(e))
             }
         }
@@ -101,7 +104,10 @@ impl AnalysisService for AnalysisServiceImpl {
             let start_time = std::time::Instant::now();
             let limit = if req.limit > 0 { Some(req.limit) } else { None };
 
-            match engine.execute_query(&req.dataset_id, &req.sql_query, limit).await {
+            match engine
+                .execute_query(&req.dataset_id, &req.sql_query, limit)
+                .await
+            {
                 Ok(stream) => {
                     let mut chunk_index = 0;
                     let mut total_rows = 0;
@@ -137,7 +143,11 @@ impl AnalysisService for AnalysisServiceImpl {
                         error_message: String::new(),
                     };
                     let response = ExecuteQueryResponse {
-                        response_type: Some(crate::proto::analysis::execute_query_response::ResponseType::Complete(complete)),
+                        response_type: Some(
+                            crate::proto::analysis::execute_query_response::ResponseType::Complete(
+                                complete,
+                            ),
+                        ),
                     };
                     let _ = tx.send(Ok(response)).await;
 
@@ -157,7 +167,11 @@ impl AnalysisService for AnalysisServiceImpl {
                         error_message: e.to_string(),
                     };
                     let response = ExecuteQueryResponse {
-                        response_type: Some(crate::proto::analysis::execute_query_response::ResponseType::Complete(complete)),
+                        response_type: Some(
+                            crate::proto::analysis::execute_query_response::ResponseType::Complete(
+                                complete,
+                            ),
+                        ),
                     };
                     let _ = tx.send(Ok(response)).await;
                 }
@@ -192,41 +206,62 @@ impl AnalysisService for AnalysisServiceImpl {
             }));
         }
 
-        let description = if req.description.is_empty() { None } else { Some(req.description) };
-        let tags = if req.tags.is_empty() { None } else { Some(req.tags) };
-        let format = if req.format.is_empty() { None } else { Some(req.format) };
+        let description = if req.description.is_empty() {
+            None
+        } else {
+            Some(req.description)
+        };
+        let tags = if req.tags.is_empty() {
+            None
+        } else {
+            Some(req.tags)
+        };
+        let format = if req.format.is_empty() {
+            None
+        } else {
+            Some(req.format)
+        };
 
-        match self.engine.add_dataset_from_external_path(
-            req.name,
-            req.source_path.clone(),
-            description,
-            tags,
-            format,
-        ).await {
+        match self
+            .engine
+            .add_dataset_from_external_path(
+                req.name,
+                req.source_path.clone(),
+                description,
+                tags,
+                format,
+            )
+            .await
+        {
             Ok(dataset_id) => {
                 info!("Successfully added dataset '{}'", dataset_id);
 
-                match self.engine.list_datasets().await.into_iter().find(|d| d.id == dataset_id) {
-                    Some(dataset) => {
-                        Ok(Response::new(AddDatasetResponse {
-                            success: true,
-                            dataset_id: dataset_id.clone(),
-                            message: format!("Dataset '{}' added successfully", dataset_id),
-                            dataset: Some(dataset),
-                        }))
-                    }
-                    None => {
-                        Ok(Response::new(AddDatasetResponse {
-                            success: true,
-                            dataset_id: dataset_id.clone(),
-                            message: format!("Dataset '{}' added successfully", dataset_id),
-                            dataset: None,
-                        }))
-                    }
+                match self
+                    .engine
+                    .list_datasets()
+                    .await
+                    .into_iter()
+                    .find(|d| d.id == dataset_id)
+                {
+                    Some(dataset) => Ok(Response::new(AddDatasetResponse {
+                        success: true,
+                        dataset_id: dataset_id.clone(),
+                        message: format!("Dataset '{}' added successfully", dataset_id),
+                        dataset: Some(dataset),
+                    })),
+                    None => Ok(Response::new(AddDatasetResponse {
+                        success: true,
+                        dataset_id: dataset_id.clone(),
+                        message: format!("Dataset '{}' added successfully", dataset_id),
+                        dataset: None,
+                    })),
                 }
             }
             Err(e) => {
-                error!("gRPC: Failed to add dataset from '{}': {}", req.source_path, e);
+                error!(
+                    "gRPC: Failed to add dataset from '{}': {}",
+                    req.source_path, e
+                );
                 Ok(Response::new(AddDatasetResponse {
                     success: false,
                     dataset_id: String::new(),

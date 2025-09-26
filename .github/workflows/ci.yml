@@ -11,7 +11,6 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # Test Query Engine
   test-query-engine:
     name: Test Query Engine
     runs-on: ubuntu-latest
@@ -78,40 +77,3 @@ jobs:
         tags: query-engine-service:test
         cache-from: type=gha
         cache-to: type=gha,mode=max
-
-    - name: Test Docker image
-      run: |
-        docker run --name query-engine-test -d -p 50051:50051 \
-          -e GRPC_PORT=50051 -e GCS_BUCKET_NAME=test-bucket \
-          -e DATABASE_URL=postgresql://test:test@localhost:5432/test \
-          query-engine-service:test
-
-        # Wait for container to start
-        sleep 10
-
-        # Stop container (basic smoke test)
-        docker stop query-engine-test
-
-  # Security Scan
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
-

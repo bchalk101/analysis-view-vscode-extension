@@ -59,7 +59,9 @@ impl AnalysisEngine {
             self.register_dataset_with_datafusion(dataset_id).await?;
         }
 
-        self.datafusion.execute_query(dataset_id, sql_query, limit).await
+        self.datafusion
+            .execute_query(dataset_id, sql_query, limit)
+            .await
     }
 
     pub async fn list_datasets(&self) -> Vec<crate::proto::analysis::Dataset> {
@@ -81,7 +83,6 @@ impl AnalysisEngine {
 
         Ok(metadata)
     }
-
 
     pub async fn add_dataset_from_external_path(
         &self,
