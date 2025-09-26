@@ -21,7 +21,7 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
     let bucket_name = "agentic_analytics_datasets".to_string();
     let test_id = Uuid::new_v4();
     let database_url =
-        format!("postgres://analysis_user:analysis_password@localhost:5432/analysis_catalog");
+        "postgres://analysis_user:analysis_password@localhost:5432/analysis_catalog".to_string();
 
     let engine = AnalysisEngine::new(bucket_name, database_url)
         .await

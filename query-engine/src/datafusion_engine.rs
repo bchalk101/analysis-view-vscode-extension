@@ -156,13 +156,13 @@ impl DataFusionEngine {
                 .iter()
                 .map(|field| ColumnInfo {
                     name: field.name().clone(),
-                    data_type: self.datafusion_type_to_string(field.data_type()),
+                    data_type: datafusion_type_to_string(field.data_type()),
                     nullable: field.is_nullable(),
                     description: field.metadata().get("description").cloned().unwrap_or_else(
                         || {
                             format!(
                                 "Column of type {}",
-                                self.datafusion_type_to_string(field.data_type())
+                                datafusion_type_to_string(field.data_type())
                             )
                         },
                     ),
@@ -272,90 +272,6 @@ impl DataFusionEngine {
         Ok(())
     }
 
-    fn datafusion_type_to_string(
-        &self,
-        data_type: &datafusion::arrow::datatypes::DataType,
-    ) -> String {
-        use datafusion::arrow::datatypes::DataType;
-
-        match data_type {
-            DataType::Boolean => "Boolean".to_string(),
-            DataType::Int8 => "Int8".to_string(),
-            DataType::Int16 => "Int16".to_string(),
-            DataType::Int32 => "Int32".to_string(),
-            DataType::Int64 => "Int64".to_string(),
-            DataType::UInt8 => "UInt8".to_string(),
-            DataType::UInt16 => "UInt16".to_string(),
-            DataType::UInt32 => "UInt32".to_string(),
-            DataType::UInt64 => "UInt64".to_string(),
-            DataType::Float16 => "Float16".to_string(),
-            DataType::Float32 => "Float32".to_string(),
-            DataType::Float64 => "Float64".to_string(),
-            DataType::Timestamp(unit, tz) => match tz {
-                Some(tz) => format!("Timestamp({:?}, {})", unit, tz),
-                None => format!("Timestamp({:?})", unit),
-            },
-            DataType::Date32 => "Date32".to_string(),
-            DataType::Date64 => "Date64".to_string(),
-            DataType::Time32(unit) => format!("Time32({:?})", unit),
-            DataType::Time64(unit) => format!("Time64({:?})", unit),
-            DataType::Duration(unit) => format!("Duration({:?})", unit),
-            DataType::Interval(unit) => format!("Interval({:?})", unit),
-            DataType::Binary => "Binary".to_string(),
-            DataType::FixedSizeBinary(size) => format!("FixedSizeBinary({})", size),
-            DataType::LargeBinary => "LargeBinary".to_string(),
-            DataType::Utf8 => "String".to_string(),
-            DataType::LargeUtf8 => "LargeString".to_string(),
-            DataType::List(field) => format!(
-                "List({})",
-                self.datafusion_type_to_string(field.data_type())
-            ),
-            DataType::FixedSizeList(field, size) => format!(
-                "FixedSizeList({}, {})",
-                self.datafusion_type_to_string(field.data_type()),
-                size
-            ),
-            DataType::LargeList(field) => format!(
-                "LargeList({})",
-                self.datafusion_type_to_string(field.data_type())
-            ),
-            DataType::Struct(fields) => {
-                let field_types: Vec<String> = fields
-                    .iter()
-                    .map(|f| {
-                        format!(
-                            "{}: {}",
-                            f.name(),
-                            self.datafusion_type_to_string(f.data_type())
-                        )
-                    })
-                    .collect();
-                format!("Struct({})", field_types.join(", "))
-            }
-            DataType::Union(_, _) => "Union".to_string(),
-            DataType::Dictionary(key_type, value_type) => {
-                format!(
-                    "Dictionary({}, {})",
-                    self.datafusion_type_to_string(key_type),
-                    self.datafusion_type_to_string(value_type)
-                )
-            }
-            DataType::Decimal128(precision, scale) => {
-                format!("Decimal128({}, {})", precision, scale)
-            }
-            DataType::Decimal256(precision, scale) => {
-                format!("Decimal256({}, {})", precision, scale)
-            }
-            DataType::Map(field, sorted) => format!(
-                "Map({}, sorted: {})",
-                self.datafusion_type_to_string(field.data_type()),
-                sorted
-            ),
-            DataType::RunEndEncoded(_, _) => "RunEndEncoded".to_string(),
-            _ => format!("{:?}", data_type),
-        }
-    }
-
     pub fn get_object_store_url(base_path: &str) -> Result<ObjectStoreUrl, AnalysisError> {
         let url = Url::parse(base_path).map_err(|origin| {
             warn!("Could not parse base path {}", origin);
@@ -363,7 +279,7 @@ impl DataFusionEngine {
                 message: format!("Invalid dataset path: {}", base_path),
             }
         })?;
-        ObjectStoreUrl::parse(&format!("{}://{}", url.scheme(), url.host_str().unwrap())).map_err(
+        ObjectStoreUrl::parse(format!("{}://{}", url.scheme(), url.host_str().unwrap())).map_err(
             |origin| {
                 warn!("Could not parse base path to object store url: {}", origin);
                 AnalysisError::ConfigError {
@@ -433,5 +349,77 @@ impl DataFusionEngine {
             .register_object_store(object_store_url.as_ref(), object_store.clone());
         self.registered_buckets.write().await.insert(dataset_path);
         Ok(object_store)
+    }
+}
+
+fn datafusion_type_to_string(data_type: &datafusion::arrow::datatypes::DataType) -> String {
+    use datafusion::arrow::datatypes::DataType;
+
+    match data_type {
+        DataType::Boolean => "Boolean".to_string(),
+        DataType::Int8 => "Int8".to_string(),
+        DataType::Int16 => "Int16".to_string(),
+        DataType::Int32 => "Int32".to_string(),
+        DataType::Int64 => "Int64".to_string(),
+        DataType::UInt8 => "UInt8".to_string(),
+        DataType::UInt16 => "UInt16".to_string(),
+        DataType::UInt32 => "UInt32".to_string(),
+        DataType::UInt64 => "UInt64".to_string(),
+        DataType::Float16 => "Float16".to_string(),
+        DataType::Float32 => "Float32".to_string(),
+        DataType::Float64 => "Float64".to_string(),
+        DataType::Timestamp(unit, tz) => match tz {
+            Some(tz) => format!("Timestamp({:?}, {})", unit, tz),
+            None => format!("Timestamp({:?})", unit),
+        },
+        DataType::Date32 => "Date32".to_string(),
+        DataType::Date64 => "Date64".to_string(),
+        DataType::Time32(unit) => format!("Time32({:?})", unit),
+        DataType::Time64(unit) => format!("Time64({:?})", unit),
+        DataType::Duration(unit) => format!("Duration({:?})", unit),
+        DataType::Interval(unit) => format!("Interval({:?})", unit),
+        DataType::Binary => "Binary".to_string(),
+        DataType::FixedSizeBinary(size) => format!("FixedSizeBinary({})", size),
+        DataType::LargeBinary => "LargeBinary".to_string(),
+        DataType::Utf8 => "String".to_string(),
+        DataType::LargeUtf8 => "LargeString".to_string(),
+        DataType::List(field) => format!("List({})", datafusion_type_to_string(field.data_type())),
+        DataType::FixedSizeList(field, size) => format!(
+            "FixedSizeList({}, {})",
+            datafusion_type_to_string(field.data_type()),
+            size
+        ),
+        DataType::LargeList(field) => format!(
+            "LargeList({})",
+            datafusion_type_to_string(field.data_type())
+        ),
+        DataType::Struct(fields) => {
+            let field_types: Vec<String> = fields
+                .iter()
+                .map(|f| format!("{}: {}", f.name(), datafusion_type_to_string(f.data_type())))
+                .collect();
+            format!("Struct({})", field_types.join(", "))
+        }
+        DataType::Union(_, _) => "Union".to_string(),
+        DataType::Dictionary(key_type, value_type) => {
+            format!(
+                "Dictionary({}, {})",
+                datafusion_type_to_string(key_type),
+                datafusion_type_to_string(value_type)
+            )
+        }
+        DataType::Decimal128(precision, scale) => {
+            format!("Decimal128({}, {})", precision, scale)
+        }
+        DataType::Decimal256(precision, scale) => {
+            format!("Decimal256({}, {})", precision, scale)
+        }
+        DataType::Map(field, sorted) => format!(
+            "Map({}, sorted: {})",
+            datafusion_type_to_string(field.data_type()),
+            sorted
+        ),
+        DataType::RunEndEncoded(_, _) => "RunEndEncoded".to_string(),
+        _ => format!("{:?}", data_type),
     }
 }

@@ -44,7 +44,7 @@ impl DatabaseManager {
         // This is a limitation of diesel_migrations which doesn't support async yet
 
         let mut connection =
-            PgConnection::establish(&database_url).map_err(|e| AnalysisError::ConfigError {
+            PgConnection::establish(database_url).map_err(|e| AnalysisError::ConfigError {
                 message: format!("Failed to establish connection for migrations: {}", e),
             })?;
 

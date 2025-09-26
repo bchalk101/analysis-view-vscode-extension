@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use futures::StreamExt;
 use object_store::{aws::AmazonS3Builder, gcp::GoogleCloudStorageBuilder};
 use object_store::{path::Path as ObjectPath, ObjectStore};
@@ -17,16 +17,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct DatasetInfo {
     pub id: String,
-    pub uuid: Uuid,
-    pub name: String,
-    pub description: String,
-    pub dataset_path: String,
     pub format: DataFormat,
-    pub size_bytes: i64,
-    pub row_count: i32,
-    pub tags: Vec<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
     pub files: Vec<DatasetFile>,
 }
 
@@ -44,7 +35,7 @@ impl DatasetManager {
     }
 
     fn is_file_path(path: &str) -> bool {
-        let filename = path.split('/').last().unwrap_or("");
+        let filename = path.split('/').next_back().unwrap_or("");
         filename.contains('.') && !filename.ends_with('/')
     }
 
@@ -109,7 +100,7 @@ impl DatasetManager {
         let dataset_uuid = Uuid::new_v4();
 
         let dataset_files = if Self::is_file_path(&source_path) {
-            let filename = source_path.split('/').last().unwrap_or("data").to_string();
+            let filename = source_path.split('/').next_back().unwrap_or("data").to_string();
 
             let storage_path = self
                 .storage
@@ -162,7 +153,7 @@ impl DatasetManager {
 
             let mut dataset_files = Vec::new();
             for file_path in file_objects {
-                let filename = file_path.split('/').last().unwrap_or("data").to_string();
+                let filename = file_path.split('/').next_back().unwrap_or("data").to_string();
                 let full_source_path = format!(
                     "{}://{}/{}",
                     source_url.scheme(),
@@ -272,16 +263,7 @@ impl DatasetManager {
         match self.database.load_metadata(dataset_id).await {
             Ok(metadata) => Some(DatasetInfo {
                 id: metadata.id.clone(),
-                uuid: metadata.uuid,
-                name: metadata.name.clone(),
-                description: metadata.description.clone(),
-                dataset_path: metadata.dataset_path.clone(),
                 format: metadata.format.clone(),
-                size_bytes: metadata.size_bytes,
-                row_count: metadata.row_count,
-                tags: metadata.tags.clone(),
-                created_at: metadata.created_at,
-                updated_at: metadata.updated_at,
                 files: metadata.files,
             }),
             Err(e) => {
