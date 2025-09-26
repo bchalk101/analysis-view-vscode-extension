@@ -153,12 +153,25 @@ resource "google_secret_manager_secret_version" "query_engine_database_url" {
 
 
 
+# Create a custom service account for Cloud Run
+resource "google_service_account" "cloud_run_service_account" {
+  account_id   = "query-engine-service-sa"
+  display_name = "Query Engine Service Account"
+  description  = "Service account for the Query Engine Cloud Run service"
+}
+
 resource "google_project_iam_member" "cloud_run_secret_accessor" {
   project = var.project_id
   role    = "roles/secretmanager.secretAccessor"
-  member  = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+  member  = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
 
   depends_on = [google_project_service.secret_manager_api]
+}
+
+resource "google_project_iam_member" "cloud_run_storage_accessor" {
+  project = var.project_id
+  role    = "roles/storage.objectViewer"
+  member  = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
 }
 
 # Get project information
@@ -216,6 +229,7 @@ resource "google_cloud_run_service" "query_engine_service" {
 
       container_concurrency = 50
       timeout_seconds       = 600
+      service_account_name  = google_service_account.cloud_run_service_account.email
     }
 
     metadata {
