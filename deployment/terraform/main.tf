@@ -7,6 +7,10 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  backend "gcs" {
+    prefix = "terraform/state"
+  }
 }
 
 # Configure the Google Cloud Provider

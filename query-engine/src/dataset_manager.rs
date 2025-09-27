@@ -100,7 +100,11 @@ impl DatasetManager {
         let dataset_uuid = Uuid::new_v4();
 
         let dataset_files = if Self::is_file_path(&source_path) {
-            let filename = source_path.split('/').next_back().unwrap_or("data").to_string();
+            let filename = source_path
+                .split('/')
+                .next_back()
+                .unwrap_or("data")
+                .to_string();
 
             let storage_path = self
                 .storage
@@ -153,7 +157,11 @@ impl DatasetManager {
 
             let mut dataset_files = Vec::new();
             for file_path in file_objects {
-                let filename = file_path.split('/').next_back().unwrap_or("data").to_string();
+                let filename = file_path
+                    .split('/')
+                    .next_back()
+                    .unwrap_or("data")
+                    .to_string();
                 let full_source_path = format!(
                     "{}://{}/{}",
                     source_url.scheme(),

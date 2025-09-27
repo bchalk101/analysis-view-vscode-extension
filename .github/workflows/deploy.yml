@@ -7,6 +7,11 @@ on:
       - 'query-engine/**'
       - 'deployment/**'
       - '.github/workflows/deploy.yml'
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+    branches: [ main ]
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -18,7 +23,7 @@ jobs:
   deploy-query-engine:
     name: Deploy Query Engine
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
 
     permissions:
       contents: 'read'
@@ -65,9 +70,12 @@ jobs:
         TF_VAR_region: ${{ env.REGION }}
         TF_VAR_gcs_bucket_name: ${{ env.GCS_BUCKET_NAME }}
         TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
+        TERRAFORM_STATE_BUCKET: terraform-state-bucket-analysis-view-${{ env.PROJECT_ID }}
       run: |
-        terraform init
-        terraform plan
+        # Bootstrap Terraform state and import existing resources
+        ../scripts/bootstrap-terraform.sh
+
+        # Apply infrastructure changes (backend already configured by bootstrap)
         terraform apply -auto-approve
 
     - name: Deploy Query Engine to Cloud Run

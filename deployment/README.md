@@ -71,18 +71,24 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --role="roles/editor"
 ```
 
-### 2. Deploy Infrastructure
+### 2. Deploy with Bootstrap Script
+
+The bootstrap script handles Terraform state setup and resource imports automatically:
 
 ```bash
-cd terraform
-terraform init
+cd scripts
 
-# Set required variables
+# Set environment variables
 export TF_VAR_project_id="your-project-id"
+export TF_VAR_region="us-central1"
 export TF_VAR_gcs_bucket_name="your-unique-bucket-name"
 export TF_VAR_db_password="your-secure-db-password"
 
-terraform plan
+# Bootstrap and deploy
+./bootstrap-terraform.sh
+
+# Apply infrastructure changes
+cd ../terraform
 terraform apply
 ```
 
@@ -161,46 +167,3 @@ gcloud run deploy query-engine-service \
 - Single region deployment
 - HDD storage instead of SSD
 - Disabled database backups and HA
-
-## Security
-
-- **Database**: Private network access with authorized IPs
-- **Credentials**: All secrets stored in Secret Manager
-- **Cloud Run**: HTTPS/TLS encryption
-- **IAM**: Least-privilege service account permissions
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Database Connection Errors**:
-   - Check Secret Manager contains valid DATABASE_URL
-   - Verify database instance is running
-   - Confirm authorized networks in Cloud SQL
-
-2. **gRPC Connection Issues**:
-   - Ensure Cloud Run is configured with `--use-http2`
-   - Check port 50051 is properly exposed
-   - Verify service is allowing unauthenticated access
-
-3. **Permission Errors**:
-   - Verify service account has required roles
-   - Check Cloud Run service account can access Secret Manager
-
-### Debug Commands
-
-```bash
-# Check service status
-gcloud run services describe query-engine-service --region=us-central1
-
-# View recent logs
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=query-engine-service" --limit=50
-
-# Check database connectivity
-gcloud sql instances describe analysis-db-instance
-
-# Test Secret Manager access
-gcloud secrets versions access latest --secret=query-engine-database-url
-```
-
-For additional support, check the project documentation or create an issue in the GitHub repository.
