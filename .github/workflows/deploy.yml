@@ -51,28 +51,35 @@ jobs:
       with:
         terraform_version: "~1.0"
 
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
     - name: Configure Docker to use gcloud as a credential helper
       run: gcloud auth configure-docker
 
     - name: Build and push Query Engine Docker image
-      env:
-        IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:${{ github.sha }}
-        IMAGE_LATEST: gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:latest
-      run: |
-        cd query-engine
-        docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
-        docker push $IMAGE_TAG
-        docker push $IMAGE_LATEST
+      uses: docker/build-push-action@v5
+      with:
+        context: ./query-engine
+        file: ./query-engine/Dockerfile
+        push: true
+        tags: |
+          gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:${{ github.sha }}
+          gcr.io/${{ env.PROJECT_ID }}/${{ env.QUERY_ENGINE_SERVICE_NAME }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Build and push MCP Server Docker image
-      env:
-        IMAGE_TAG: gcr.io/${{ env.PROJECT_ID }}/${{ env.MCP_SERVICE_NAME }}:${{ github.sha }}
-        IMAGE_LATEST: gcr.io/${{ env.PROJECT_ID }}/${{ env.MCP_SERVICE_NAME }}:latest
-      run: |
-        cd mcp-server
-        docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
-        docker push $IMAGE_TAG
-        docker push $IMAGE_LATEST
+      uses: docker/build-push-action@v5
+      with:
+        context: ./mcp-server
+        file: ./mcp-server/Dockerfile
+        push: true
+        tags: |
+          gcr.io/${{ env.PROJECT_ID }}/${{ env.MCP_SERVICE_NAME }}:${{ github.sha }}
+          gcr.io/${{ env.PROJECT_ID }}/${{ env.MCP_SERVICE_NAME }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
 
     - name: Deploy infrastructure with Terraform
       working-directory: ./deployment/terraform

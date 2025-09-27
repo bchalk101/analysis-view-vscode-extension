@@ -1,9 +1,18 @@
 FROM rust:1.75 AS builder
 
-WORKDIR /app
-COPY . .
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y protobuf-compiler
+WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
+
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+RUN cargo build --release
+RUN rm -rf src
+
+COPY . .
 
 RUN cargo build --release --bin query-engine
 

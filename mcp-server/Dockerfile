@@ -1,14 +1,19 @@
 FROM rust:1.75 as builder
 
-# Install protobuf compiler
-RUN apt-get update && apt-get install -y \
-    protobuf-compiler \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+COPY Cargo.toml Cargo.lock ./
+COPY build.rs ./
+
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+RUN cargo build --release
+RUN rm -rf src
+
 COPY . .
 
-# Build the application
 RUN cargo build --release --bin mcp-server
 
 # Runtime image
