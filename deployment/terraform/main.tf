@@ -37,6 +37,12 @@ variable "query_engine_service_name" {
   default     = "query-engine-service"
 }
 
+variable "mcp_service_name" {
+  description = "The name of the MCP Server Cloud Run service"
+  type        = string
+  default     = "analysis-mcp-server"
+}
+
 variable "gcs_bucket_name" {
   description = "The name of the GCS bucket for datasets"
   type        = string
@@ -263,12 +269,105 @@ resource "google_cloud_run_service" "query_engine_service" {
   }
 }
 
+# MCP Server Cloud Run service (publicly accessible)
+resource "google_cloud_run_service" "mcp_server_service" {
+  name     = var.mcp_service_name
+  location = var.region
+
+  template {
+    spec {
+      containers {
+        image = "gcr.io/${var.project_id}/${var.mcp_service_name}:latest"
+
+        ports {
+          container_port = 8080
+          name           = "http1"
+        }
+
+        env {
+          name  = "MCP_PORT"
+          value = "8080"
+        }
+
+        env {
+          name  = "QUERY_ENGINE_ENDPOINT"
+          value = google_cloud_run_service.query_engine_service.status[0].url
+        }
+
+        env {
+          name  = "RUST_LOG"
+          value = "mcp_server=info"
+        }
+
+        resources {
+          limits = {
+            cpu    = "1000m"
+            memory = "512Mi"
+          }
+        }
+      }
+
+      container_concurrency = 10
+      timeout_seconds       = 300
+      service_account_name  = google_service_account.cloud_run_service_account.email
+    }
+
+    metadata {
+      annotations = {
+        "autoscaling.knative.dev/maxScale"           = "10"
+        "autoscaling.knative.dev/minScale"           = "0"
+        "run.googleapis.com/cpu-throttling"          = "true"
+        "run.googleapis.com/execution-environment"   = "gen2"
+      }
+    }
+  }
+
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+
+  depends_on = [
+    google_project_service.cloud_run_api,
+    google_cloud_run_service.query_engine_service
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].spec[0].containers[0].image,
+    ]
+  }
+}
+
+# IAM policy to make MCP server publicly accessible
+resource "google_cloud_run_service_iam_member" "mcp_server_public" {
+  location = google_cloud_run_service.mcp_server_service.location
+  project  = google_cloud_run_service.mcp_server_service.project
+  service  = google_cloud_run_service.mcp_server_service.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+# Make query engine private (only accessible by MCP server)
+resource "google_cloud_run_service_iam_member" "query_engine_private" {
+  location = google_cloud_run_service.query_engine_service.location
+  project  = google_cloud_run_service.query_engine_service.project
+  service  = google_cloud_run_service.query_engine_service.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
+}
+
 
 # Outputs
 
 output "query_engine_service_url" {
-  description = "The URL of the deployed Query Engine service"
+  description = "The URL of the deployed Query Engine service (private)"
   value       = google_cloud_run_service.query_engine_service.status[0].url
+}
+
+output "mcp_server_service_url" {
+  description = "The URL of the deployed MCP Server service (public)"
+  value       = google_cloud_run_service.mcp_server_service.status[0].url
 }
 
 output "database_host" {

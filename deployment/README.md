@@ -92,6 +92,25 @@ cd ../terraform
 terraform apply
 ```
 
+### Troubleshooting 409 Conflicts
+
+If you encounter 409 "already exists" errors like:
+- `Error 409: Your previous request to create the named bucket succeeded and you already own it.`
+- `Error 409: The Cloud SQL instance already exists.`
+- `Error 409: Secret already exists.`
+
+**Quick Fix:**
+```bash
+cd scripts
+./fix-terraform-imports.sh <project-id> <region> <bucket-name>
+```
+
+This script will:
+1. Initialize Terraform with the correct backend
+2. Import all existing resources into Terraform state
+3. Run a plan to verify the imports worked
+4. Provide manual import commands if anything fails
+
 ### 3. Deploy Query Engine
 
 ```bash

@@ -9,6 +9,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: us-central1
   QUERY_ENGINE_SERVICE_NAME: query-engine-service
+  MCP_SERVICE_NAME: analysis-mcp-server
   GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
 
 jobs:
