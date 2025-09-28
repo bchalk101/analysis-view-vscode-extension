@@ -6,6 +6,7 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
+COPY proto ./proto
 
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
@@ -16,18 +17,14 @@ COPY . .
 
 RUN cargo build --release --bin mcp-server
 
-# Runtime image
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app user
 RUN useradd -r -s /bin/false appuser
 
-# Copy the binary
 COPY --from=builder /app/target/release/mcp-server /usr/local/bin/mcp-server
 RUN chmod +x /usr/local/bin/mcp-server
 

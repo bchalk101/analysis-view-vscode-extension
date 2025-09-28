@@ -6,6 +6,7 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 COPY build.rs ./
+COPY proto ./proto
 
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
