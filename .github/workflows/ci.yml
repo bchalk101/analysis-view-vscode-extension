@@ -19,8 +19,9 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_db
+          POSTGRES_PASSWORD: analysis_password
+          POSTGRES_DB: analysis_catalog
+          POSTGRES_USER: analysis_user
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -63,7 +64,7 @@ jobs:
     - name: Run tests
       working-directory: ./query-engine
       env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        DATABASE_URL: postgresql://analysis_user:analysis_password@localhost:5432/analysis_catalog
       run: cargo test --verbose
 
     - name: Build release

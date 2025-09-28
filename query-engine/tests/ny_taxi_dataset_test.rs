@@ -20,8 +20,8 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
     // Given: A configured analysis engine and NYC taxi dataset directory
     let bucket_name = "agentic_analytics_datasets".to_string();
     let test_id = Uuid::new_v4();
-    let database_url =
-        "postgres://analysis_user:analysis_password@localhost:5432/analysis_catalog".to_string();
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://analysis_user:analysis_password@localhost:5432/analysis_catalog".to_string());
 
     let engine = AnalysisEngine::new(bucket_name, database_url)
         .await
