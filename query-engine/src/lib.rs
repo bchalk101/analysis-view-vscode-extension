@@ -11,6 +11,7 @@ pub mod dataset_manager;
 pub mod domain;
 pub mod engine;
 pub mod error;
+pub mod gcs_client;
 pub mod grpc_server;
 pub mod models;
 pub mod schema;

@@ -1,6 +1,6 @@
 use chrono::Utc;
 use futures::StreamExt;
-use object_store::{aws::AmazonS3Builder, gcp::GoogleCloudStorageBuilder};
+use object_store::{aws::AmazonS3Builder};
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use url::Url;
 use crate::catalog::{CatalogDatasetEntry, DataFormat, DatasetFile, DatasetMetadataFile};
 use crate::database::DatabaseManager;
 use crate::error::AnalysisError;
+use crate::gcs_client::create_gcs_client;
 use crate::proto::analysis::{ColumnInfo, Dataset, DatasetMetadata};
 use crate::storage::DatasetStorage;
 use uuid::Uuid;
@@ -67,14 +68,7 @@ impl DatasetManager {
                         message: "Invalid GCS URL: missing bucket".to_string(),
                     })?;
 
-                let gcs_store = GoogleCloudStorageBuilder::new()
-                    .with_bucket_name(bucket)
-                    .build()
-                    .map_err(|e| AnalysisError::ConfigError {
-                        message: format!("Failed to create GCS client: {}", e),
-                    })?;
-
-                Ok(Arc::new(gcs_store))
+                Ok(create_gcs_client(bucket)?)
             }
             scheme => Err(AnalysisError::ConfigError {
                 message: format!("Unsupported storage scheme: {}", scheme),

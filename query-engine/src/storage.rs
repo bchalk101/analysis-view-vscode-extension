@@ -1,6 +1,6 @@
 use futures::StreamExt;
 use object_store::{
-    aws::AmazonS3Builder, gcp::GoogleCloudStorageBuilder, path::Path as ObjectPath,
+    aws::AmazonS3Builder, path::Path as ObjectPath,
     MultipartUpload, ObjectStore,
 };
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use tracing::info;
 use url::Url;
 
 use crate::error::AnalysisError;
+use crate::gcs_client::create_gcs_client;
 
 #[derive(Debug)]
 pub struct DatasetStorage {
@@ -22,15 +23,10 @@ impl DatasetStorage {
             bucket_name
         );
 
-        let store = GoogleCloudStorageBuilder::new()
-            .with_bucket_name(&bucket_name)
-            .build()
-            .map_err(|e| AnalysisError::ConfigError {
-                message: format!("Failed to initialize GCP storage: {}", e),
-            })?;
+        let store = create_gcs_client(&bucket_name)?;
 
         Ok(Self {
-            store: Arc::new(store),
+            store,
             bucket_name,
         })
     }
@@ -76,14 +72,7 @@ impl DatasetStorage {
                     })?;
 
                 info!("Creating GCS client for bucket: {}", bucket);
-                let gcs_store = GoogleCloudStorageBuilder::new()
-                    .with_bucket_name(bucket)
-                    .build()
-                    .map_err(|e| AnalysisError::ConfigError {
-                        message: format!("Failed to create GCS client: {}", e),
-                    })?;
-
-                Arc::new(gcs_store)
+                create_gcs_client(bucket)?
             }
             scheme => {
                 return Err(AnalysisError::ConfigError {

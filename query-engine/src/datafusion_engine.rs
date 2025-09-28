@@ -10,7 +10,7 @@ use datafusion::execution::config::SessionConfig;
 use datafusion::execution::context::SessionContext;
 use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
-use object_store::{aws::AmazonS3Builder, gcp::GoogleCloudStorageBuilder, ObjectStore};
+use object_store::{aws::AmazonS3Builder, ObjectStore};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -20,6 +20,7 @@ use url::Url;
 use crate::dataset_manager::DatasetInfo;
 use crate::domain::{ColumnInfo, QueryDataChunk, QueryMetadata, QueryStreamResult};
 use crate::error::AnalysisError;
+use crate::gcs_client::create_gcs_client;
 
 pub struct DataFusionEngine {
     ctx: SessionContext,
@@ -330,13 +331,7 @@ impl DataFusionEngine {
                 let bucket = url.host_str().ok_or_else(|| AnalysisError::ConfigError {
                     message: "Invalid GCS URL: missing bucket".to_string(),
                 })?;
-                let gcs_store = GoogleCloudStorageBuilder::new()
-                    .with_bucket_name(bucket)
-                    .build()
-                    .map_err(|e| AnalysisError::ConfigError {
-                        message: format!("Failed to create GCS client: {}", e),
-                    })?;
-                Arc::new(gcs_store)
+                create_gcs_client(bucket)?
             }
             scheme => {
                 return Err(AnalysisError::ConfigError {

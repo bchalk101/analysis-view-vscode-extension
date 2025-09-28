@@ -72,7 +72,7 @@ jobs:
       env:
         DATABASE_URL: postgresql://analysis_user:analysis_password@localhost:5432/analysis_catalog
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-      run: cargo test --verbose
+      run: cargo test
 
     - name: Build release
       working-directory: ./query-engine

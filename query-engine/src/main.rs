@@ -17,6 +17,7 @@ mod dataset_manager;
 mod domain;
 mod engine;
 mod error;
+mod gcs_client;
 mod grpc_server;
 mod models;
 mod schema;
