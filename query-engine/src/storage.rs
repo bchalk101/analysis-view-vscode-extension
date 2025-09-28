@@ -1,8 +1,5 @@
 use futures::StreamExt;
-use object_store::{
-    aws::AmazonS3Builder, path::Path as ObjectPath,
-    MultipartUpload, ObjectStore,
-};
+use object_store::{aws::AmazonS3Builder, path::Path as ObjectPath, MultipartUpload, ObjectStore};
 use std::sync::Arc;
 use tracing::info;
 use url::Url;
@@ -25,10 +22,7 @@ impl DatasetStorage {
 
         let store = create_gcs_client(&bucket_name)?;
 
-        Ok(Self {
-            store,
-            bucket_name,
-        })
+        Ok(Self { store, bucket_name })
     }
 
     pub async fn copy_from_external_storage(

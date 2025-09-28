@@ -1,6 +1,6 @@
 use chrono::Utc;
 use futures::StreamExt;
-use object_store::{aws::AmazonS3Builder};
+use object_store::aws::AmazonS3Builder;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
