@@ -1,6 +1,7 @@
 use rmcp::ServiceExt;
-use tokio::io::{stdin, stdout};
-use tracing::info;
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod proto {
@@ -27,23 +28,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting MCP Server v0.1.0");
 
+    let mcp_port: u16 = std::env::var("PORT")
+        .or_else(|_| std::env::var("MCP_PORT"))
+        .unwrap_or_else(|_| "8080".to_string())
+        .parse()
+        .expect("Invalid PORT");
+
     let query_engine_endpoint = std::env::var("QUERY_ENGINE_ENDPOINT")
         .unwrap_or_else(|_| "http://localhost:50051".to_string());
 
     info!("Configuration loaded:");
+    info!("  MCP Port: {}", mcp_port);
     info!("  Query Engine Endpoint: {}", query_engine_endpoint);
 
-    let transport = (stdin(), stdout());
-    let service = AnalysisService::new(query_engine_endpoint).await?;
+    let addr: SocketAddr = ([0, 0, 0, 0], mcp_port).into();
+    let tcp_listener = TcpListener::bind(addr).await?;
 
-    info!("MCP server initialized successfully");
+    info!("MCP server listening on {}", addr);
 
-    let server = service.serve(transport).await?;
+    while let Ok((stream, remote_addr)) = tcp_listener.accept().await {
+        info!("New connection from {}", remote_addr);
 
-    info!("MCP server started successfully");
+        let query_engine_endpoint = query_engine_endpoint.clone();
+        tokio::spawn(async move {
+            match AnalysisService::new(query_engine_endpoint).await {
+                Ok(service) => match service.serve(stream).await {
+                    Ok(server) => {
+                        info!("MCP server session started for {}", remote_addr);
+                        if let Err(e) = server.waiting().await {
+                            error!("Server error for {}: {}", remote_addr, e);
+                        }
+                        info!("MCP server session ended for {}", remote_addr);
+                    }
+                    Err(e) => error!("Failed to serve client {}: {}", remote_addr, e),
+                },
+                Err(e) => error!("Failed to create service for {}: {}", remote_addr, e),
+            }
+        });
+    }
 
-    server.waiting().await?;
-
-    info!("MCP Server shutdown complete");
     Ok(())
 }
