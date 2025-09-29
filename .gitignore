@@ -118,4 +118,68 @@ temp/
 *.ipr
 *.iws
 .vscode-test/
+
+# Rust build artifacts (legacy)
 target/
+
+# Python dependencies and artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Python virtual environments
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# uv specific
+uv.lock
+.uv/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# pytype
+.pytype/
+
+# IPython
+.ipynb_checkpoints
+
+# Generated protobuf files
+*_pb2.py
+*_pb2_grpc.py

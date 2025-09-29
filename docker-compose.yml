@@ -23,8 +23,6 @@ services:
       - RUST_LOG=query_engine_service=debug
     ports:
       - "50051:50051"
-    volumes:
-      - ./data:/data:ro
     depends_on:
       - postgres
     networks:

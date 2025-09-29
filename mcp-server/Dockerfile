@@ -1,35 +1,37 @@
-FROM rust:latest as builder
-
-RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-COPY Cargo.toml Cargo.lock ./
-COPY build.rs ./
-COPY proto ./proto
-
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-
-RUN cargo build --release
-RUN rm -rf src
-
-COPY . .
-
-RUN cargo build --release --bin mcp-server
-
-FROM debian:bookworm-slim
+FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y \
+    build-essential \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -r -s /bin/false appuser
+RUN pip install uv
 
-COPY --from=builder /app/target/release/mcp-server /usr/local/bin/mcp-server
-RUN chmod +x /usr/local/bin/mcp-server
+# Create non-root user first
+RUN useradd -r -m -s /bin/false appuser
 
+# Create and set ownership of working directory
+RUN mkdir -p /app && chown -R appuser:appuser /app
+WORKDIR /app
+
+# Switch to non-root user early
 USER appuser
+
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+COPY --chown=appuser:appuser proto ./proto
+
+RUN uv sync --frozen
+
+COPY --chown=appuser:appuser . .
+
+RUN uv run python -m grpc_tools.protoc \
+    --python_out=src/mcp_server \
+    --grpc_python_out=src/mcp_server \
+    --proto_path=proto \
+    proto/analysis.proto
+
+RUN sed -i 's/import analysis_pb2/from . import analysis_pb2/' src/mcp_server/analysis_pb2_grpc.py
 
 EXPOSE 8080
 
-CMD ["mcp-server"]
+CMD ["uv", "run", "python", "main.py"]
