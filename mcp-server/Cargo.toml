@@ -24,6 +24,10 @@ tonic-build = "0.14"
 # Apache Arrow for IPC deserialization
 arrow = "56.0"
 
+# HTTP server dependencies
+hyper = { version = "1.0", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+
 base64 = "0.22"
 tonic-prost = "0.14.2"
 

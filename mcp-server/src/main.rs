@@ -1,3 +1,6 @@
+use hyper::server::conn::http1;
+use hyper::{body::Incoming, service::service_fn, Request, Response, StatusCode};
+use hyper_util::rt::TokioIo;
 use rmcp::ServiceExt;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -15,6 +18,54 @@ mod mcp_server;
 mod query_client;
 
 use mcp_server::AnalysisService;
+
+async fn handle_request(
+    req: Request<Incoming>,
+    query_engine_endpoint: String,
+) -> Result<Response<String>, hyper::Error> {
+    if req
+        .headers()
+        .get(hyper::header::UPGRADE)
+        .map(|v| v.to_str().unwrap_or(""))
+        == Some("mcp")
+    {
+        info!("Received MCP upgrade request");
+
+        tokio::spawn(async move {
+            if let Ok(upgraded) = hyper::upgrade::on(req).await {
+                info!("HTTP upgrade successful");
+                let io = TokioIo::new(upgraded);
+
+                match AnalysisService::new(query_engine_endpoint).await {
+                    Ok(service) => match service.serve(io).await {
+                        Ok(server) => {
+                            info!("MCP server session started");
+                            if let Err(e) = server.waiting().await {
+                                error!("Server error: {}", e);
+                            }
+                            info!("MCP server session ended");
+                        }
+                        Err(e) => error!("Failed to serve client: {}", e),
+                    },
+                    Err(e) => error!("Failed to create service: {}", e),
+                }
+            }
+        });
+
+        return Ok(Response::builder()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+            .header(hyper::header::UPGRADE, "mcp")
+            .header(hyper::header::CONNECTION, "upgrade")
+            .body("Switching Protocols".to_string())
+            .unwrap());
+    }
+
+    // Handle non-upgrade requests
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .body("MCP Server - Use upgrade header to connect".to_string())
+        .unwrap())
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,22 +98,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("MCP server listening on {}", addr);
 
     while let Ok((stream, remote_addr)) = tcp_listener.accept().await {
-        info!("New connection from {}", remote_addr);
+        info!("New HTTP connection from {}", remote_addr);
 
         let query_engine_endpoint = query_engine_endpoint.clone();
         tokio::spawn(async move {
-            match AnalysisService::new(query_engine_endpoint).await {
-                Ok(service) => match service.serve(stream).await {
-                    Ok(server) => {
-                        info!("MCP server session started for {}", remote_addr);
-                        if let Err(e) = server.waiting().await {
-                            error!("Server error for {}: {}", remote_addr, e);
-                        }
-                        info!("MCP server session ended for {}", remote_addr);
-                    }
-                    Err(e) => error!("Failed to serve client {}: {}", remote_addr, e),
-                },
-                Err(e) => error!("Failed to create service for {}: {}", remote_addr, e),
+            let io = TokioIo::new(stream);
+            let service = service_fn(move |req| {
+                let endpoint = query_engine_endpoint.clone();
+                async move { handle_request(req, endpoint).await }
+            });
+
+            if let Err(e) = http1::Builder::new()
+                .serve_connection(io, service)
+                .with_upgrades()
+                .await
+            {
+                error!("HTTP connection error for {}: {}", remote_addr, e);
             }
         });
     }
