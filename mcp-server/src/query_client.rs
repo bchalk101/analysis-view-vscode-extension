@@ -17,7 +17,7 @@ pub struct QueryResult {
     pub execution_time_ms: u64,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct QueryEngineClient {
     client: AnalysisServiceClient<Channel>,
 }
@@ -301,7 +301,7 @@ impl QueryEngineClient {
         }
     }
 
-    pub async fn health_check(&mut self) -> Result<(), AnalysisError> {
+    pub async fn _health_check(&mut self) -> Result<(), AnalysisError> {
         let _ = self.list_datasets().await?;
         Ok(())
     }
