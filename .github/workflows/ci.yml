@@ -74,12 +74,6 @@ jobs:
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
       run: cargo test
 
-    - name: Build release
-      working-directory: ./query-engine
-      run: cargo build --release --verbose
-
-
-
   test-mcp-server:
     name: Test MCP Server
     runs-on: ubuntu-latest
@@ -117,9 +111,5 @@ jobs:
 
     - name: Run tests
       working-directory: ./mcp-server
-      run: cargo test --verbose
-
-    - name: Build release
-      working-directory: ./mcp-server
-      run: cargo build --release --verbose
+      run: cargo test
 

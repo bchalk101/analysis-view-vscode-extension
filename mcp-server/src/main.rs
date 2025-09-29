@@ -23,47 +23,38 @@ async fn handle_request(
     req: Request<Incoming>,
     query_engine_endpoint: String,
 ) -> Result<Response<String>, hyper::Error> {
-    if req
-        .headers()
-        .get(hyper::header::UPGRADE)
-        .map(|v| v.to_str().unwrap_or(""))
-        == Some("mcp")
-    {
-        info!("Received MCP upgrade request");
+    info!(
+        "Received HTTP request: {} {}",
+        req.method(),
+        req.uri().path()
+    );
 
-        tokio::spawn(async move {
-            if let Ok(upgraded) = hyper::upgrade::on(req).await {
-                info!("HTTP upgrade successful");
-                let io = TokioIo::new(upgraded);
+    tokio::spawn(async move {
+        if let Ok(upgraded) = hyper::upgrade::on(req).await {
+            info!("HTTP upgrade successful");
+            let io = TokioIo::new(upgraded);
 
-                match AnalysisService::new(query_engine_endpoint).await {
-                    Ok(service) => match service.serve(io).await {
-                        Ok(server) => {
-                            info!("MCP server session started");
-                            if let Err(e) = server.waiting().await {
-                                error!("Server error: {}", e);
-                            }
-                            info!("MCP server session ended");
+            match AnalysisService::new(query_engine_endpoint).await {
+                Ok(service) => match service.serve(io).await {
+                    Ok(server) => {
+                        info!("MCP server session started");
+                        if let Err(e) = server.waiting().await {
+                            error!("Server error: {}", e);
                         }
-                        Err(e) => error!("Failed to serve client: {}", e),
-                    },
-                    Err(e) => error!("Failed to create service: {}", e),
-                }
+                        info!("MCP server session ended");
+                    }
+                    Err(e) => error!("Failed to serve client: {}", e),
+                },
+                Err(e) => error!("Failed to create service: {}", e),
             }
-        });
+        }
+    });
 
-        return Ok(Response::builder()
-            .status(StatusCode::SWITCHING_PROTOCOLS)
-            .header(hyper::header::UPGRADE, "mcp")
-            .header(hyper::header::CONNECTION, "upgrade")
-            .body("Switching Protocols".to_string())
-            .unwrap());
-    }
-
-    // Handle non-upgrade requests
     Ok(Response::builder()
-        .status(StatusCode::OK)
-        .body("MCP Server - Use upgrade header to connect".to_string())
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(hyper::header::UPGRADE, "mcp")
+        .header(hyper::header::CONNECTION, "upgrade")
+        .body("Switching Protocols".to_string())
         .unwrap())
 }
 
