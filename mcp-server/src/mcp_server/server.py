@@ -47,8 +47,10 @@ class AnalysisService:
         if self.query_client:
             await self.query_client.close()
 
+
 mcp = FastMCP("Analysis MCP Server")
 service = AnalysisService(query_engine_endpoint)
+
 
 @mcp.tool()
 async def list_datasets() -> str:
@@ -78,6 +80,7 @@ async def list_datasets() -> str:
         return json.dumps(datasets_dict, indent=2)
     except Exception as e:
         return f"Error: {str(e)}"
+
 
 @mcp.tool()
 async def get_metadata(params: GetMetadataRequest) -> str:
@@ -116,6 +119,7 @@ async def get_metadata(params: GetMetadataRequest) -> str:
         return json.dumps(metadata_dict, indent=2)
     except Exception as e:
         return f"Error: {str(e)}"
+
 
 @mcp.tool()
 async def execute_query(params: ExecuteQueryRequest) -> str:

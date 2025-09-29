@@ -1,22 +1,21 @@
-if git diff --cached --name-only | grep -E "^(query-engine|mcp-server)/.*\.rs$" > /dev/null; then
-    echo "Running cargo fmt on Rust files..."
+# Format query-engine Rust files if any changed
+if git diff --cached --name-only | grep -E "^query-engine/.*\.rs$" > /dev/null; then
+    echo "Formatting query-engine Rust files..."
+    cd query-engine && cargo fmt --all
+    cd ..
+    git add query-engine/src/**/*.rs 2>/dev/null || true
+    echo "Query-engine Rust formatting complete."
+fi
 
-    # Format query-engine if any files changed
-    if git diff --cached --name-only | grep -E "^query-engine/.*\.rs$" > /dev/null; then
-        echo "Formatting query-engine..."
-        cd query-engine && cargo fmt --all
-        cd ..
-    fi
+# Format mcp-server Python files if any changed
+if git diff --cached --name-only | grep -E "^mcp-server/.*\.py$" > /dev/null; then
+    echo "Formatting mcp-server Python files..."
+    cd mcp-server
+    echo "Using uv to format Python files..."
+    uv run ruff format .
+    uv run ruff check --fix .
 
-    # Format mcp-server if any files changed
-    if git diff --cached --name-only | grep -E "^mcp-server/.*\.rs$" > /dev/null; then
-        echo "Formatting mcp-server..."
-        cd mcp-server && cargo fmt --all
-        cd ..
-    fi
-
-    # Re-add the formatted files
-    git add query-engine/src/**/*.rs mcp-server/src/**/*.rs 2>/dev/null || true
-
-    echo "Rust formatting complete."
+    cd ..
+    git add mcp-server/src/**/*.py mcp-server/tests/**/*.py mcp-server/*.py 2>/dev/null || true
+    echo "Python formatting complete."
 fi
