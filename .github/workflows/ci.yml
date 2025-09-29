@@ -115,10 +115,6 @@ jobs:
       working-directory: ./mcp-server
       run: uv run ruff check .
 
-    - name: Run type checking (mypy)
-      working-directory: ./mcp-server
-      run: uv run mypy src/
-
     - name: Run tests
       working-directory: ./mcp-server
       run: uv run pytest

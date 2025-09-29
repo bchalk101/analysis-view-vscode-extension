@@ -37,13 +37,9 @@ class VsCodeDatasetQuery(BaseModel):
 class AnalysisService:
     def __init__(self, query_engine_endpoint: str):
         self.query_engine_endpoint = query_engine_endpoint
-        self.query_client = None
-
-    async def initialize(self):
         self.query_client = QueryEngineClient(self.query_engine_endpoint)
-        await self.query_client.connect()
 
-    async def close(self):
+    async def close(self) -> None:
         if self.query_client:
             await self.query_client.close()
 
@@ -55,9 +51,6 @@ service = AnalysisService(query_engine_endpoint)
 @mcp.tool()
 async def list_datasets() -> str:
     """List all available datasets"""
-    if not service.query_client:
-        await service.initialize()
-
     try:
         datasets = await service.query_client.list_datasets()
         datasets_dict = []
@@ -85,9 +78,6 @@ async def list_datasets() -> str:
 @mcp.tool()
 async def get_metadata(params: GetMetadataRequest) -> str:
     """Get metadata for a specific dataset"""
-    if not service.query_client:
-        await service.initialize()
-
     try:
         metadata = await service.query_client.get_metadata(params.dataset_id)
         if not metadata:
@@ -124,9 +114,6 @@ async def get_metadata(params: GetMetadataRequest) -> str:
 @mcp.tool()
 async def execute_query(params: ExecuteQueryRequest) -> str:
     """Execute a SQL query on a dataset"""
-    if not service.query_client:
-        await service.initialize()
-
     try:
         result = await service.query_client.execute_query(
             params.dataset_id, params.sql_query, params.limit
@@ -143,7 +130,7 @@ async def execute_query(params: ExecuteQueryRequest) -> str:
         return f"Error: {str(e)}"
 
 
-def run_server():
+def run_server() -> None:
     port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8080")))
     query_engine_endpoint = os.getenv("QUERY_ENGINE_ENDPOINT", "http://localhost:50051")
 

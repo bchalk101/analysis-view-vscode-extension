@@ -33,16 +33,10 @@ class QueryResult:
 class QueryEngineClient:
     def __init__(self, endpoint: str):
         self.endpoint = endpoint
-        self.channel = None
-        self.stub = None
-
-    async def connect(self):
-        logger.info(f"Connecting to query engine at {self.endpoint}")
         self.channel = grpc.aio.insecure_channel(self.endpoint)
         self.stub = AnalysisServiceStub(self.channel)
-        logger.info("Successfully connected to query engine")
 
-    async def close(self):
+    async def close(self) -> None:
         if self.channel:
             await self.channel.close()
 
