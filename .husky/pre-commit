@@ -1,0 +1,22 @@
+if git diff --cached --name-only | grep -E "^(query-engine|mcp-server)/.*\.rs$" > /dev/null; then
+    echo "Running cargo fmt on Rust files..."
+
+    # Format query-engine if any files changed
+    if git diff --cached --name-only | grep -E "^query-engine/.*\.rs$" > /dev/null; then
+        echo "Formatting query-engine..."
+        cd query-engine && cargo fmt --all
+        cd ..
+    fi
+
+    # Format mcp-server if any files changed
+    if git diff --cached --name-only | grep -E "^mcp-server/.*\.rs$" > /dev/null; then
+        echo "Formatting mcp-server..."
+        cd mcp-server && cargo fmt --all
+        cd ..
+    fi
+
+    # Re-add the formatted files
+    git add query-engine/src/**/*.rs mcp-server/src/**/*.rs 2>/dev/null || true
+
+    echo "Rust formatting complete."
+fi
