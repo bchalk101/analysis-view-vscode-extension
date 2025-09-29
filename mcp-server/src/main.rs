@@ -17,7 +17,6 @@ use mcp_server::McpServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -28,7 +27,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Starting MCP Server v0.1.0");
 
-    // Parse configuration from environment variables
     let mcp_port: u16 = std::env::var("MCP_PORT")
         .unwrap_or_else(|_| "8080".to_string())
         .parse()
@@ -41,11 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("  MCP Port: {}", mcp_port);
     info!("  Query Engine Endpoint: {}", query_engine_endpoint);
 
-    // Initialize MCP server with query engine client
     let mcp_server = McpServer::new(query_engine_endpoint).await?;
     info!("MCP server initialized successfully");
 
-    // Start MCP server
     let mcp_addr: SocketAddr = ([0, 0, 0, 0], mcp_port).into();
     let mcp_handle = tokio::spawn(async move {
         if let Err(e) = mcp_server.start(mcp_addr).await {
@@ -56,7 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("MCP server started successfully");
     info!("MCP server listening on http://{}", mcp_addr);
 
-    // Wait for shutdown signal
     match signal::ctrl_c().await {
         Ok(()) => {
             info!("Received shutdown signal, gracefully shutting down...");
@@ -66,7 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Cancel server tasks
     mcp_handle.abort();
 
     info!("MCP Server shutdown complete");

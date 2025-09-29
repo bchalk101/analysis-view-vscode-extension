@@ -98,6 +98,9 @@ async fn handle_mcp_request(
     );
 
     let response = match request.method.as_str() {
+        "initialize" => handle_initialize(request.id, request.params),
+        "initialized" => handle_initialized(request.id),
+        "ping" => handle_ping(request.id),
         "tools/list" => handle_tools_list(request.id),
         "tools/call" => handle_tool_call(query_client, request.id, request.params).await,
         _ => McpResponse {
@@ -106,13 +109,54 @@ async fn handle_mcp_request(
             result: None,
             error: Some(McpError {
                 code: -32601,
-                message: "Method not found".to_string(),
+                message: format!("Method not found: {}", request.method),
                 data: None,
             }),
         },
     };
 
     Json(response)
+}
+
+fn handle_initialize(
+    id: Option<serde_json::Value>,
+    _params: Option<serde_json::Value>,
+) -> McpResponse {
+    let capabilities = serde_json::json!({
+        "protocolVersion": "2024-11-05",
+        "capabilities": {
+            "tools": {}
+        },
+        "serverInfo": {
+            "name": "analysis-engine",
+            "version": "0.1.0"
+        }
+    });
+
+    McpResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: Some(capabilities),
+        error: None,
+    }
+}
+
+fn handle_initialized(id: Option<serde_json::Value>) -> McpResponse {
+    McpResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: Some(serde_json::json!({})),
+        error: None,
+    }
+}
+
+fn handle_ping(id: Option<serde_json::Value>) -> McpResponse {
+    McpResponse {
+        jsonrpc: "2.0".to_string(),
+        id,
+        result: Some(serde_json::json!({})),
+        error: None,
+    }
 }
 
 fn handle_tools_list(id: Option<serde_json::Value>) -> McpResponse {
