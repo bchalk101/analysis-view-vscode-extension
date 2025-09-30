@@ -254,6 +254,7 @@ resource "google_cloud_run_service" "query_engine_service" {
         "autoscaling.knative.dev/minScale"           = "1"
         "run.googleapis.com/cpu-throttling"          = "false"
         "run.googleapis.com/execution-environment"   = "gen2"
+        "run.googleapis.com/ingress"                 = "all"
       }
     }
   }
@@ -342,13 +343,13 @@ resource "google_cloud_run_service_iam_member" "mcp_server_public" {
   member   = "allUsers"
 }
 
-# Make query engine private (only accessible by MCP server)
-resource "google_cloud_run_service_iam_member" "query_engine_private" {
+# Allow unauthenticated access to query engine
+resource "google_cloud_run_service_iam_member" "query_engine_noauth" {
   location = google_cloud_run_service.query_engine_service.location
   project  = google_cloud_run_service.query_engine_service.project
   service  = google_cloud_run_service.query_engine_service.name
   role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
+  member   = "allUsers"
 }
 
 
