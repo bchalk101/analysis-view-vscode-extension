@@ -156,7 +156,6 @@ env.bak/
 venv.bak/
 
 # uv specific
-uv.lock
 .uv/
 
 # pytest
