@@ -43,6 +43,12 @@ variable "mcp_service_name" {
   default     = "analysis-mcp-server"
 }
 
+variable "image_tag" {
+  description = "The Docker image tag to deploy (typically git SHA)"
+  type        = string
+  default     = "latest"
+}
+
 variable "gcs_bucket_name" {
   description = "The name of the GCS bucket for datasets"
   type        = string
@@ -197,7 +203,7 @@ resource "google_cloud_run_service" "query_engine_service" {
   template {
     spec {
       containers {
-        image = "gcr.io/${var.project_id}/${var.query_engine_service_name}:latest"
+        image = "gcr.io/${var.project_id}/${var.query_engine_service_name}:${var.image_tag}"
 
         ports {
           container_port = 50051
@@ -261,12 +267,6 @@ resource "google_cloud_run_service" "query_engine_service" {
     google_project_service.cloud_run_api,
     google_secret_manager_secret_version.query_engine_database_url
   ]
-
-  lifecycle {
-    ignore_changes = [
-      template[0].spec[0].containers[0].image,
-    ]
-  }
 }
 
 # MCP Server Cloud Run service (publicly accessible)
@@ -277,7 +277,7 @@ resource "google_cloud_run_service" "mcp_server_service" {
   template {
     spec {
       containers {
-        image = "gcr.io/${var.project_id}/${var.mcp_service_name}:latest"
+        image = "gcr.io/${var.project_id}/${var.mcp_service_name}:${var.image_tag}"
 
         ports {
           container_port = 8080
@@ -331,12 +331,6 @@ resource "google_cloud_run_service" "mcp_server_service" {
     google_project_service.cloud_run_api,
     google_cloud_run_service.query_engine_service
   ]
-
-  lifecycle {
-    ignore_changes = [
-      template[0].spec[0].containers[0].image,
-    ]
-  }
 }
 
 # IAM policy to make MCP server publicly accessible

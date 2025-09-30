@@ -133,6 +133,7 @@ jobs:
         TF_VAR_query_engine_service_name: ${{ env.QUERY_ENGINE_SERVICE_NAME }}
         TF_VAR_mcp_service_name: ${{ env.MCP_SERVICE_NAME }}
         TF_VAR_gcs_bucket_name: ${{ env.GCS_BUCKET_NAME }}
+        TF_VAR_image_tag: ${{ github.sha }}
         TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
         TERRAFORM_STATE_BUCKET: terraform-state-bucket-analysis-view-${{ env.PROJECT_ID }}
       run: |
