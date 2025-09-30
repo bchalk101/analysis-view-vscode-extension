@@ -72,7 +72,8 @@ async def list_datasets() -> str:
             )
         return json.dumps(datasets_dict, indent=2)
     except Exception as e:
-        return f"Error: {str(e)}"
+        logger.error(f"Failed to list datasets: {e}")
+        return json.dumps({"error": "Failed to retrieve datasets. Please try again later."})
 
 
 @mcp.tool()
@@ -81,7 +82,7 @@ async def get_metadata(params: GetMetadataRequest) -> str:
     try:
         metadata = await service.query_client.get_metadata(params.dataset_id)
         if not metadata:
-            return f"Error: Dataset not found: {params.dataset_id}"
+            return json.dumps({"error": f"Dataset not found: {params.dataset_id}"})
 
         metadata_dict = {
             "id": metadata.id,
@@ -108,7 +109,8 @@ async def get_metadata(params: GetMetadataRequest) -> str:
         }
         return json.dumps(metadata_dict, indent=2)
     except Exception as e:
-        return f"Error: {str(e)}"
+        logger.error(f"Failed to get metadata for {params.dataset_id}: {e}")
+        return json.dumps({"error": "Failed to retrieve dataset metadata. Please try again later."})
 
 
 @mcp.tool()
@@ -127,7 +129,10 @@ async def execute_query(params: ExecuteQueryRequest) -> str:
         }
         return json.dumps(response, indent=2)
     except Exception as e:
-        return f"Error: {str(e)}"
+        logger.error(f"Failed to execute query on {params.dataset_id}: {e}")
+        return json.dumps(
+            {"error": "Failed to execute query. Please check your SQL syntax and try again."}
+        )
 
 
 def run_server() -> None:

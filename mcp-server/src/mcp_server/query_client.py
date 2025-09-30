@@ -32,14 +32,19 @@ class QueryResult:
 
 class QueryEngineClient:
     def __init__(self, endpoint: str):
-        self.endpoint = endpoint
+        self.endpoint = endpoint.replace("https://", "").replace("http://", "")
+        self.use_ssl = "https://" in endpoint or ":443" in endpoint
         self._channel = None
         self._stub = None
 
     @property
     def channel(self):
         if self._channel is None:
-            self._channel = grpc.aio.insecure_channel(self.endpoint)
+            if self.use_ssl:
+                credentials = grpc.ssl_channel_credentials()
+                self._channel = grpc.aio.secure_channel(self.endpoint, credentials)
+            else:
+                self._channel = grpc.aio.insecure_channel(self.endpoint)
         return self._channel
 
     @property

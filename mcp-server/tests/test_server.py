@@ -75,7 +75,8 @@ async def test_query_engine_client_initialization():
     from src.mcp_server.query_client import QueryEngineClient
 
     client = QueryEngineClient("http://test:50051")
-    assert client.endpoint == "http://test:50051"
+    assert client.endpoint == "test:50051"
+    assert client.use_ssl is False
 
     # Test close method exists
     await client.close()
