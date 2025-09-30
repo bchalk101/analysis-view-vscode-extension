@@ -139,4 +139,4 @@ def run_server() -> None:
     logger.info(f"  MCP Port: {port}")
     logger.info(f"  Query Engine Endpoint: {query_engine_endpoint}")
 
-    mcp.run(transport="http", host="0.0.0.0", port=port, show_banner=False)
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=port, show_banner=False)
