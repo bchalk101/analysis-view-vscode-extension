@@ -281,7 +281,7 @@ resource "google_cloud_run_service" "mcp_server_service" {
 
         ports {
           container_port = 8080
-          name           = "h2c"
+          name           = "http1"
         }
 
         env {
