@@ -33,12 +33,26 @@ class QueryResult:
 class QueryEngineClient:
     def __init__(self, endpoint: str):
         self.endpoint = endpoint
-        self.channel = grpc.aio.insecure_channel(self.endpoint)
-        self.stub = AnalysisServiceStub(self.channel)
+        self._channel = None
+        self._stub = None
+
+    @property
+    def channel(self):
+        if self._channel is None:
+            self._channel = grpc.aio.insecure_channel(self.endpoint)
+        return self._channel
+
+    @property
+    def stub(self):
+        if self._stub is None:
+            self._stub = AnalysisServiceStub(self.channel)
+        return self._stub
 
     async def close(self) -> None:
-        if self.channel:
-            await self.channel.close()
+        if self._channel:
+            await self._channel.close()
+            self._channel = None
+            self._stub = None
 
     async def list_datasets(self) -> list[Dataset]:
         request = ListDatasetsRequest()
