@@ -232,7 +232,7 @@ resource "google_cloud_run_service" "query_engine_service" {
 
         env {
           name  = "RUST_LOG"
-          value = "query_engine_service=info"
+          value = "info"
         }
 
         resources {
