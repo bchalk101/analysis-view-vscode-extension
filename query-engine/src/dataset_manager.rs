@@ -4,7 +4,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use url::Url;
 
 use crate::catalog::{CatalogDatasetEntry, DataFormat, DatasetFile, DatasetMetadataFile};
@@ -113,12 +113,15 @@ impl DatasetManager {
                 created_at: now,
             }]
         } else {
+            info!("Parsing source path as URL: {}", source_path);
             let source_url = Url::parse(&source_path).map_err(|e| AnalysisError::ConfigError {
                 message: format!("Invalid source path URL: {}", e),
             })?;
 
+            info!("Creating source store from URL: {}", source_url);
             let source_store = self.create_source_store_from_url(&source_url).await?;
             let source_prefix = source_url.path().trim_start_matches('/');
+            info!("Listing objects with prefix: {}", source_prefix);
 
             let file_objects = {
                 let prefix_path = ObjectPath::from(source_prefix);
@@ -134,6 +137,7 @@ impl DatasetManager {
                             }
                         }
                         Err(e) => {
+                            error!("Failed to list object: {}", e);
                             return Err(AnalysisError::ConfigError {
                                 message: format!("Failed to list objects: {}", e),
                             });
@@ -143,14 +147,16 @@ impl DatasetManager {
                 objects
             };
 
+            info!("Found {} files in directory", file_objects.len());
             if file_objects.is_empty() {
+                error!("No files found in directory: {}", source_path);
                 return Err(AnalysisError::ConfigError {
                     message: format!("No files found in directory: {}", source_path),
                 });
             }
 
             let mut dataset_files = Vec::new();
-            for file_path in file_objects {
+            for file_path in &file_objects {
                 let filename = file_path
                     .split('/')
                     .next_back()
@@ -163,10 +169,19 @@ impl DatasetManager {
                     file_path
                 );
 
+                info!(
+                    "Copying file {} to dataset {}",
+                    full_source_path, dataset_id
+                );
                 let storage_path = self
                     .storage
                     .copy_from_external_storage(&full_source_path, &dataset_id, &filename)
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to copy file {}: {}", full_source_path, e);
+                        e
+                    })?;
+                info!("Successfully copied file to {}", storage_path);
 
                 dataset_files.push(DatasetFile {
                     filename,
