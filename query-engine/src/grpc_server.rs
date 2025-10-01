@@ -265,7 +265,8 @@ impl AnalysisService for AnalysisServiceImpl {
                 Ok(Response::new(AddDatasetResponse {
                     success: false,
                     dataset_id: String::new(),
-                    message: format!("Failed to add dataset: {}", e),
+                    message: "Failed to add dataset. Please check the source path and try again."
+                        .to_string(),
                     dataset: None,
                 }))
             }

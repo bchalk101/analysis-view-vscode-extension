@@ -186,7 +186,7 @@ resource "google_project_iam_member" "cloud_run_secret_accessor" {
 
 resource "google_project_iam_member" "cloud_run_storage_accessor" {
   project = var.project_id
-  role    = "roles/storage.objectViewer"
+  role    = "roles/storage.objectAdmin"
   member  = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
 }
 
