@@ -237,8 +237,8 @@ resource "google_cloud_run_service" "query_engine_service" {
 
         resources {
           limits = {
-            cpu    = "4000m"
-            memory = "8Gi"
+            cpu    = "500m"
+            memory = "2Gi"
           }
         }
       }
@@ -250,8 +250,8 @@ resource "google_cloud_run_service" "query_engine_service" {
 
     metadata {
       annotations = {
-        "autoscaling.knative.dev/maxScale"           = "5"
-        "autoscaling.knative.dev/minScale"           = "1"
+        "autoscaling.knative.dev/maxScale"           = "2"
+        "autoscaling.knative.dev/minScale"           = "0"
         "run.googleapis.com/cpu-throttling"          = "false"
         "run.googleapis.com/execution-environment"   = "gen2"
         "run.googleapis.com/ingress"                 = "all"
@@ -302,7 +302,7 @@ resource "google_cloud_run_service" "mcp_server_service" {
 
         resources {
           limits = {
-            cpu    = "1000m"
+            cpu    = "500m"
             memory = "512Mi"
           }
         }
@@ -315,7 +315,7 @@ resource "google_cloud_run_service" "mcp_server_service" {
 
     metadata {
       annotations = {
-        "autoscaling.knative.dev/maxScale"           = "10"
+        "autoscaling.knative.dev/maxScale"           = "2"
         "autoscaling.knative.dev/minScale"           = "0"
         "run.googleapis.com/cpu-throttling"          = "true"
         "run.googleapis.com/execution-environment"   = "gen2"
