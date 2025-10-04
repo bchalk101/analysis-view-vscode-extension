@@ -13,7 +13,9 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 RUN rm -rf src
 
-COPY . .
+COPY src ./src
+COPY proto ./proto
+COPY build.rs ./
 
 RUN cargo build --release --bin query-engine
 

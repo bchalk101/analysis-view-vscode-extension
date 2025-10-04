@@ -99,13 +99,6 @@ resource "google_storage_bucket" "datasets_bucket" {
 
   uniform_bucket_level_access = true
 
-  cors {
-    origin          = ["*"]
-    method          = ["GET", "HEAD", "PUT", "POST", "DELETE"]
-    response_header = ["*"]
-    max_age_seconds = 3600
-  }
-
   depends_on = [google_project_service.cloud_run_api]
 }
 
@@ -129,6 +122,7 @@ resource "google_sql_database_instance" "analysis_db" {
 
     ip_configuration {
       ipv4_enabled = true
+      require_ssl  = true
       authorized_networks {
         value = "0.0.0.0/0"
       }
@@ -163,7 +157,7 @@ resource "google_secret_manager_secret" "query_engine_database_url" {
 
 resource "google_secret_manager_secret_version" "query_engine_database_url" {
   secret      = google_secret_manager_secret.query_engine_database_url.id
-  secret_data = "postgresql://analysis_user:${var.db_password}@${google_sql_database_instance.analysis_db.public_ip_address}:5432/analysis_catalog"
+  secret_data = "postgresql://analysis_user:${var.db_password}@${google_sql_database_instance.analysis_db.public_ip_address}:5432/analysis_catalog?sslmode=require"
 }
 
 
@@ -184,10 +178,10 @@ resource "google_project_iam_member" "cloud_run_secret_accessor" {
   depends_on = [google_project_service.secret_manager_api]
 }
 
-resource "google_project_iam_member" "cloud_run_storage_accessor" {
-  project = var.project_id
-  role    = "roles/storage.objectAdmin"
-  member  = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
+resource "google_storage_bucket_iam_member" "cloud_run_bucket_access" {
+  bucket = google_storage_bucket.datasets_bucket.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
 }
 
 # Get project information
@@ -237,13 +231,13 @@ resource "google_cloud_run_service" "query_engine_service" {
 
         resources {
           limits = {
-            cpu    = "500m"
-            memory = "1Gi"
+            cpu    = "1000m"
+            memory = "2Gi"
           }
         }
       }
 
-      container_concurrency = 50
+      container_concurrency = 10
       timeout_seconds       = 600
       service_account_name  = google_service_account.cloud_run_service_account.email
     }
@@ -254,7 +248,7 @@ resource "google_cloud_run_service" "query_engine_service" {
         "autoscaling.knative.dev/minScale"           = "0"
         "run.googleapis.com/cpu-throttling"          = "false"
         "run.googleapis.com/execution-environment"   = "gen2"
-        "run.googleapis.com/ingress"                 = "all"
+        "run.googleapis.com/ingress"                 = "internal-and-cloud-load-balancing"
       }
     }
   }
@@ -343,13 +337,12 @@ resource "google_cloud_run_service_iam_member" "mcp_server_public" {
   member   = "allUsers"
 }
 
-# Allow unauthenticated access to query engine
-resource "google_cloud_run_service_iam_member" "query_engine_noauth" {
+resource "google_cloud_run_service_iam_member" "query_engine_mcp_access" {
   location = google_cloud_run_service.query_engine_service.location
   project  = google_cloud_run_service.query_engine_service.project
   service  = google_cloud_run_service.query_engine_service.name
   role     = "roles/run.invoker"
-  member   = "allUsers"
+  member   = "serviceAccount:${google_service_account.cloud_run_service_account.email}"
 }
 
 
