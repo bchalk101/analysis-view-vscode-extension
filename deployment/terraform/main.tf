@@ -122,7 +122,6 @@ resource "google_sql_database_instance" "analysis_db" {
 
     ip_configuration {
       ipv4_enabled = true
-      require_ssl  = true
       authorized_networks {
         value = "0.0.0.0/0"
       }
@@ -157,7 +156,7 @@ resource "google_secret_manager_secret" "query_engine_database_url" {
 
 resource "google_secret_manager_secret_version" "query_engine_database_url" {
   secret      = google_secret_manager_secret.query_engine_database_url.id
-  secret_data = "postgresql://analysis_user:${var.db_password}@${google_sql_database_instance.analysis_db.public_ip_address}:5432/analysis_catalog?sslmode=require"
+  secret_data = "postgresql://analysis_user:${var.db_password}@${google_sql_database_instance.analysis_db.public_ip_address}:5432/analysis_catalog"
 }
 
 
