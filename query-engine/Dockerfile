@@ -16,6 +16,7 @@ RUN rm -rf src
 COPY src ./src
 COPY proto ./proto
 COPY build.rs ./
+COPY migrations ./migrations
 
 RUN cargo build --release --bin query-engine
 
