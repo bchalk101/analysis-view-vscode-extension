@@ -238,7 +238,7 @@ resource "google_cloud_run_service" "query_engine_service" {
         resources {
           limits = {
             cpu    = "500m"
-            memory = "2Gi"
+            memory = "1Gi"
           }
         }
       }
