@@ -17,7 +17,7 @@ fn init_test_logging() {
 async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
     init_test_logging();
 
-    // Given: A configured analysis engine and NYC taxi dataset directory
+    // Given
     let bucket_name = "agentic_analytics_datasets".to_string();
     let test_id = Uuid::new_v4();
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -32,18 +32,18 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
     let dataset_description = Some("NYC taxi trip data for aggregation testing".to_string());
     let tags = Some(vec!["taxi".to_string(), "nyc".to_string()]);
 
-    // When: Loading the dataset from external GCS directory
+    // When
     let add_dataset_result = engine
         .add_dataset_from_external_path(
             dataset_name,
             dataset_path.to_string(),
             dataset_description,
             tags,
-            Some("csv".to_string()),
+            Some("parquet".to_string()),
         )
         .await;
 
-    // Then: Dataset should be successfully loaded
+    // Then
     assert!(
         add_dataset_result.is_ok(),
         "{}",
@@ -55,7 +55,7 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
 
     let dataset_id = add_dataset_result.unwrap();
 
-    // And: Dataset should appear in the catalog
+    // And
     let datasets = engine.list_datasets().await;
     assert!(!datasets.is_empty(), "Should have at least one dataset");
     assert!(
@@ -80,13 +80,13 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
         metadata.columns
     );
 
-    // When: Executing an aggregation query with filtering
+    // When
     let aggregation_query = "SELECT AVG(trip_distance) as avg_distance, COUNT(*) as total_trips FROM base WHERE trip_distance > 0 LIMIT 1";
     let query_result = engine
         .execute_query(&dataset_id, aggregation_query, Some(1))
         .await;
 
-    // Then: Aggregation query should execute successfully
+    // Then
     assert!(
         query_result.is_ok(),
         "{}",
@@ -102,7 +102,7 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
         "Should return at least one chunk"
     );
 
-    // And: Results should contain expected aggregation columns
+    // And
     if let Some(metadata) = result.metadata {
         assert_eq!(
             metadata.column_names.len(),
