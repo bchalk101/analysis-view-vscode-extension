@@ -152,14 +152,11 @@ class QueryEngineClient:
             return []
 
     def _extract_arrow_value_as_string(self, column: pa.Array, index: int) -> str:
-        if column.is_null(index):
-            return "NULL"
-
         try:
             value = column[index].as_py()
             return str(value) if value is not None else "NULL"
         except Exception:
-            return "ERROR"
+            return "NULL"
 
     async def health_check(self) -> bool:
         try:

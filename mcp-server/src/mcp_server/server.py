@@ -288,14 +288,17 @@ async def execute_query(params: ExecuteQueryRequest) -> str:
         return json.dumps(response, indent=2)
     except Exception as e:
         elapsed_ms = (time.time() - start_time) * 1000
+        error_message = str(e)
         logger.error(
             "execute_query failed",
-            extra={"dataset_id": params.dataset_id, "elapsed_ms": elapsed_ms, "error": str(e)},
+            extra={
+                "dataset_id": params.dataset_id,
+                "elapsed_ms": elapsed_ms,
+                "error": error_message,
+            },
             exc_info=True,
         )
-        return json.dumps(
-            {"error": "Failed to execute query. Please check your SQL syntax and try again."}
-        )
+        return json.dumps({"error": f"Query execution failed: {error_message}"})
 
 
 def run_server() -> None:

@@ -106,22 +106,29 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
     );
 
     // And
-    if let Some(metadata) = result.metadata {
-        assert_eq!(
-            metadata.column_names.len(),
-            2,
-            "Should return two columns: avg_distance and total_trips"
-        );
-        assert!(
-            metadata
-                .column_names
-                .iter()
-                .any(|col| col == "avg_distance"),
-            "Should contain avg_distance column"
-        );
-        assert!(
-            metadata.column_names.iter().any(|col| col == "total_trips"),
-            "Should contain total_trips column"
-        );
-    }
+    let metadata = result.metadata.unwrap();
+    assert_eq!(
+        metadata.column_names.len(),
+        2,
+        "Should return two columns: avg_distance and total_trips"
+    );
+    assert!(
+        metadata
+            .column_names
+            .iter()
+            .any(|col| col == "avg_distance"),
+        "Should contain avg_distance column"
+    );
+    assert!(
+        metadata.column_names.iter().any(|col| col == "total_trips"),
+        "Should contain total_trips column"
+    );
+    assert_eq!(
+        metadata.estimated_rows, 1,
+        "Should return exactly one row due to LIMIT 1"
+    );
+    assert_eq!(
+        result.chunks[0].chunk_rows, 1,
+        "First chunk should contain one row"
+    );
 }
