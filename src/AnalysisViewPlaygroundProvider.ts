@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, StoryState, ExportFormat } from './types';
 import { CopilotIntegration } from './CopilotIntegration';
 import { ReportGenerator } from './ReportGenerator';
+import { McpClient } from './McpClient';
 
 export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'analysisViewConfig';
@@ -25,7 +26,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
     };
     private _reportGenerator = new ReportGenerator();
 
-    constructor(private readonly _extensionUri: vscode.Uri) {
+    constructor(private readonly _extensionUri: vscode.Uri, private readonly _mcpClient: McpClient) {
         this._copilotIntegration = new CopilotIntegration();
     }
 
@@ -62,6 +63,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     break;
                 case 'getAvailableMcpServers':
                     this._getAvailableMcpServers();
+                    break;
+                case 'listDatasets':
+                    this._listDatasets();
                     break;
                 case 'toggleChatProgress':
                     this._view?.webview.postMessage({
@@ -178,6 +182,22 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             this._view?.webview.postMessage({
                 type: 'availableModels',
                 models: []
+            });
+        }
+    }
+
+    private async _listDatasets() {
+        try {
+            const datasets = await this._mcpClient.listDatasets();
+            this._view?.webview.postMessage({
+                type: 'availableDatasets',
+                datasets: datasets
+            });
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to list datasets: ${error}`);
+            this._view?.webview.postMessage({
+                type: 'availableDatasets',
+                datasets: []
             });
         }
     }
@@ -1554,6 +1574,21 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     <div class="section-header">Configuration</div>
                     
                     <div class="input-group">
+                        <label for="dataSourceType">Data Source</label>
+                        <select id="dataSourceType">
+                            <option value="analytics">Analytics MCP</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group" id="analyticsDatasetGroup">
+                        <label for="datasetSelect">Dataset</label>
+                        <select id="datasetSelect">
+                            <option value="">Select a dataset...</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group" id="customDatasetGroup" style="display: none;">
                         <label for="datasetPath">Dataset Path</label>
                         <input type="text" id="datasetPath" placeholder="s3://bucket/path/to/dataset.csv" />
                     </div>
@@ -1657,21 +1692,101 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 function initializeInterface() {
                     if (interfaceInitialized) return;
                     setupEventListeners();
-                    document.getElementById('datasetPath').value = '';
+
+                    const datasetPathEl = document.getElementById('datasetPath');
+                    if (datasetPathEl) {
+                        datasetPathEl.value = '';
+                    }
+
                     interfaceInitialized = true;
                 }
                 
                 function setupEventListeners() {
                     const description = document.getElementById('description');
                     const datasetPath = document.getElementById('datasetPath');
-                    
+                    const datasetSelect = document.getElementById('datasetSelect');
+                    const dataSourceType = document.getElementById('dataSourceType');
+
                     if (description) {
                         description.addEventListener('input', updateConfig);
                     }
                     if (datasetPath) {
                         datasetPath.addEventListener('input', updateConfig);
                     }
-                    
+                    if (datasetSelect) {
+                        datasetSelect.addEventListener('change', (e) => {
+                            const selected = e.target.value;
+                            if (selected) {
+                                const mcpSelect = document.getElementById('mcpSelect');
+                                const mcpOptions = mcpSelect.querySelectorAll('.custom-select-option');
+                                const trigger = mcpSelect.querySelector('.custom-select-trigger');
+                                const valueSpan = trigger.querySelector('.custom-select-value');
+
+                                mcpOptions.forEach(opt => opt.classList.remove('selected'));
+
+                                const analyticsMcpOption = Array.from(mcpOptions).find(opt =>
+                                    opt.getAttribute('data-value') === 'analysis-mcp-server'
+                                );
+
+                                if (analyticsMcpOption) {
+                                    analyticsMcpOption.classList.add('selected');
+                                    valueSpan.textContent = analyticsMcpOption.textContent;
+                                }
+
+                                mcpSelect.style.opacity = '0.6';
+                                mcpSelect.style.pointerEvents = 'none';
+                                trigger.setAttribute('disabled', 'true');
+
+                                updateConfig();
+                            }
+                        });
+                    }
+                    if (dataSourceType) {
+                        dataSourceType.addEventListener('change', (e) => {
+                            const type = e.target.value;
+                            const analyticsGroup = document.getElementById('analyticsDatasetGroup');
+                            const customGroup = document.getElementById('customDatasetGroup');
+                            const mcpSelect = document.getElementById('mcpSelect');
+                            const trigger = mcpSelect.querySelector('.custom-select-trigger');
+
+                            if (type === 'analytics') {
+                                analyticsGroup.style.display = 'block';
+                                customGroup.style.display = 'none';
+
+                                const datasetSelect = document.getElementById('datasetSelect');
+                                if (datasetSelect && datasetSelect.value) {
+                                    const mcpOptions = mcpSelect.querySelectorAll('.custom-select-option');
+                                    const valueSpan = trigger.querySelector('.custom-select-value');
+
+                                    mcpOptions.forEach(opt => opt.classList.remove('selected'));
+
+                                    const analyticsMcpOption = Array.from(mcpOptions).find(opt =>
+                                        opt.getAttribute('data-value') === 'analysis-mcp-server'
+                                    );
+
+                                    if (analyticsMcpOption) {
+                                        analyticsMcpOption.classList.add('selected');
+                                        valueSpan.textContent = analyticsMcpOption.textContent;
+                                    }
+
+                                    mcpSelect.style.opacity = '0.6';
+                                    mcpSelect.style.pointerEvents = 'none';
+                                    trigger.setAttribute('disabled', 'true');
+                                }
+                            } else {
+                                analyticsGroup.style.display = 'none';
+                                customGroup.style.display = 'block';
+
+                                mcpSelect.style.opacity = '1';
+                                mcpSelect.style.pointerEvents = 'auto';
+                                trigger.removeAttribute('disabled');
+                            }
+                            updateConfig();
+                        });
+                    }
+
+                    vscode.postMessage({ type: 'listDatasets' });
+
                     setupCustomSelect();
                     setupMcpSelect();
                     setupGlobalClickHandler();
@@ -1846,18 +1961,27 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     const modelSelect = document.getElementById('modelSelect');
                     const modelOption = modelSelect.querySelector('.custom-select-option.selected');
                     const selectedModel = modelOption ? modelOption.getAttribute('data-value') : '';
-                    
+
                     const mcpSelect = document.getElementById('mcpSelect');
                     const mcpOption = mcpSelect.querySelector('.custom-select-option.selected');
-                    const selectedMcpServer = mcpOption ? mcpOption.getAttribute('data-value') : 'all';
-                    
+                    let selectedMcpServer = mcpOption ? mcpOption.getAttribute('data-value') : 'all';
+
+                    const dataSourceType = document.getElementById('dataSourceType').value;
+                    const datasetPath = dataSourceType === 'analytics'
+                        ? document.getElementById('datasetSelect').value
+                        : document.getElementById('datasetPath').value;
+
+                    if (dataSourceType === 'analytics' && datasetPath) {
+                        selectedMcpServer = 'analysis-mcp-server';
+                    }
+
                     const config = {
                         description: document.getElementById('description').value,
-                        datasetPath: document.getElementById('datasetPath').value,
+                        datasetPath: datasetPath,
                         selectedModel: selectedModel || undefined,
                         selectedMcpServer: selectedMcpServer || 'all'
                     };
-                    
+
                     vscode.postMessage({ type: 'configUpdate', config: config });
                 }
                 
@@ -1871,13 +1995,18 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         return;
                     }
                     
+                    const dataSourceType = document.getElementById('dataSourceType').value;
+
                     if (!datasetPath) {
-                        showValidationError('datasetPath', 'Please provide a dataset path.');
+                        if (dataSourceType === 'analytics') {
+                            showValidationError('datasetSelect', 'Please select a dataset.');
+                        } else {
+                            showValidationError('datasetPath', 'Please provide a dataset path.');
+                        }
                         return;
                     }
-                    
-                    // Validate dataset path is not a placeholder
-                    if (datasetPath.includes('/path/to/') || datasetPath === 'Dataset Path') {
+
+                    if (dataSourceType === 'custom' && (datasetPath.includes('/path/to/') || datasetPath === 'Dataset Path')) {
                         showValidationError('datasetPath', 'Please provide a real dataset path, not a placeholder.');
                         return;
                     }
@@ -2202,6 +2331,9 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         case 'availableMcpServers':
                             populateMcpServers(message.servers);
                             break;
+                        case 'availableDatasets':
+                            populateDatasets(message.datasets);
+                            break;
                         case 'progress':
                             updateProgress(message.status, message.message);
                             break;
@@ -2277,19 +2409,36 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     });
                 }
                 
+                function populateDatasets(datasets) {
+                    const datasetSelect = document.getElementById('datasetSelect');
+
+                    if (!datasets || datasets.length === 0) {
+                        datasetSelect.innerHTML = '<option value="">No datasets available</option>';
+                        return;
+                    }
+
+                    datasetSelect.innerHTML = '<option value="">Select a dataset...</option>';
+                    datasets.forEach(dataset => {
+                        const option = document.createElement('option');
+                        option.value = dataset.file_path;
+                        option.textContent = \`\${dataset.name} (\${dataset.row_count} rows)\`;
+                        datasetSelect.appendChild(option);
+                    });
+                }
+
                 function populateMcpServers(servers) {
                     const customSelect = document.getElementById('mcpSelect');
                     const trigger = customSelect.querySelector('.custom-select-trigger');
                     const valueSpan = trigger.querySelector('.custom-select-value');
                     const options = customSelect.querySelector('.custom-select-options');
-                    
+
                     // Reset trigger appearance
                     trigger.style.opacity = '1';
                     valueSpan.textContent = 'All available';
-                    
+
                     // Clear existing options
                     options.innerHTML = '';
-                    
+
                     // Add default "All Tools" option if servers exist
                     if (servers.length > 0) {
                         const allOption = servers.find(s => s.id === 'all');
@@ -2300,7 +2449,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                             defaultOption.textContent = \`All (\${allOption.toolCount})\`;
                             options.appendChild(defaultOption);
                         }
-                        
+
                         // Add server options (excluding the "all" option we already added)
                         servers.filter(s => s.id !== 'all').forEach(server => {
                             const option = document.createElement('div');

@@ -87,7 +87,7 @@ export interface CompleteReport {
 export type ExportFormat = 'json' | 'html' | 'pdf-ready';
 
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generateStory' | 'exportReport' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'autoFixVisualization';
+  type: 'configUpdate' | 'generateStory' | 'exportReport' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'autoFixVisualization' | 'listDatasets';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;
@@ -97,7 +97,6 @@ export interface WebviewMessage {
     stepIndex?: number;
   };
   storyMode?: boolean;
-  // Auto-fix specific properties
   jsCode?: string;
   error?: string;
   step?: StoryStep;

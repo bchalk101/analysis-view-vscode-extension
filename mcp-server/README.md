@@ -1,26 +1,36 @@
 # Analysis MCP Server
 
-A high-performance Rust-based MCP (Model Context Protocol) server that provides SQL query capabilities using DataFusion as the underlying engine. This server replaces the previous `mcp_reader_service` with a more robust, scalable solution deployed on Google Cloud Platform.
+A Python-based MCP (Model Context Protocol) server that provides SQL query capabilities over datasets stored in Google Cloud Storage. This server uses FastMCP and connects to a backend query engine service for data processing.
+
+## Architecture
+
+The MCP server acts as a bridge between MCP clients (like VS Code extensions) and the query engine service:
+
+- **MCP Server** (Python/FastMCP): Exposes MCP tools over HTTP with streamable responses
+- **Query Engine** (gRPC): Backend service that handles SQL execution and dataset management
+- **Storage**: Google Cloud Storage for dataset files
 
 ## Features
 
-- **DataFusion SQL Engine**: Fast, memory-efficient SQL processing using Apache Arrow
-- **MCP Protocol Support**: Standard MCP tools for dataset operations
-- **gRPC API**: High-performance gRPC interface for direct client access
-- **Pre-loaded Datasets**: Sample financial, health, and demographic datasets
-- **Cloud-Native**: Designed for deployment on Google Cloud Run
-- **Auto-scaling**: Automatically scales based on demand
+- **MCP Protocol Support**: Streamable HTTP transport with SSE (Server-Sent Events)
+- **Dataset Management**: List, query, and retrieve metadata for datasets
+- **Structured Logging**: Comprehensive request/response logging with timing
+- **Cloud-Native**: Deployed on Google Cloud Run with auto-scaling
+- **Authentication**: Service-to-service authentication using Google Cloud identity tokens
 
 ## MCP Tools
 
 The server provides three main MCP tools:
 
 ### 1. `list_datasets`
-Lists all available datasets in the system.
+Lists all available datasets from the query engine.
 
 **Parameters**: None
 
-**Response**: Array of dataset objects with metadata
+**Response**: Array of dataset objects with metadata including:
+- `id`, `name`, `description`
+- `file_path`, `format`, `size_bytes`, `row_count`
+- `tags`, `created_at`, `updated_at`
 
 ### 2. `get_metadata`
 Retrieves detailed metadata for a specific dataset.
@@ -28,7 +38,10 @@ Retrieves detailed metadata for a specific dataset.
 **Parameters**:
 - `dataset_id` (string): The ID of the dataset
 
-**Response**: Dataset metadata including column information, statistics, and schema
+**Response**: Dataset metadata including:
+- Basic info (id, name, description)
+- Column information (name, data_type, nullable, statistics)
+- Dataset statistics
 
 ### 3. `execute_query`
 Executes a SQL query against a specified dataset.
@@ -36,68 +49,46 @@ Executes a SQL query against a specified dataset.
 **Parameters**:
 - `dataset_id` (string): The ID of the dataset to query
 - `sql_query` (string): The SQL query to execute
-- `limit` (integer, optional): Maximum number of rows to return (default: unlimited)
+- `limit` (integer, optional): Maximum number of rows to return (default: 1000)
 
-**Response**: Query results with rows, column names, and execution metadata
-
-## Pre-loaded Datasets
-
-The server comes with several sample datasets ready for analysis:
-
-### Financial Data
-- **Stock Prices** (`stock_prices`): Daily stock prices for major tech companies
-  - Columns: date, symbol, open, high, low, close, volume
-
-### Healthcare Data
-- **Patient Metrics** (`patient_metrics`): Patient health indicators and risk factors
-  - Columns: patient_id, age, gender, bmi, blood_pressure_systolic, blood_pressure_diastolic, cholesterol, glucose, smoking, diabetes
-
-### Demographics Data
-- **City Demographics** (`city_demographics`): Economic and demographic data for major US cities
-  - Columns: city, state, population, median_age, median_income, unemployment_rate, education_level
+**Response**: Query results with:
+- `rows`: Array of row dictionaries
+- `column_names`: Array of column names
+- `total_rows`: Total number of rows returned
+- `execution_time_ms`: Query execution time
 
 ## Local Development
 
 ### Prerequisites
 
-- Rust 1.75 or later
-- Protocol Buffers compiler (`protoc`)
+- Python 3.11 or later
+- uv (Python package manager)
 
-### Build and Run
+### Setup
 
 ```bash
-# Navigate to the server directory
 cd mcp-server
 
-# Build the server
-cargo build --release
+uv sync
 
-# Run the server
-./target/release/server
+uv run python -m mcp_server.server
 ```
 
 ### Environment Variables
 
-- `MCP_PORT`: Port for MCP HTTP server (default: 8080)
-- `GRPC_PORT`: Port for gRPC server (default: 50051)
-- `DATA_DIR`: Directory containing data files (default: ./data)
-- `RUST_LOG`: Log level configuration (default: analysis_mcp_server=info)
+- `PORT` or `MCP_PORT`: Port for MCP HTTP server (default: 8080)
+- `QUERY_ENGINE_ENDPOINT`: Query engine gRPC endpoint (default: http://localhost:50051)
 
 ### Testing
 
 ```bash
-# Run unit tests
-cargo test
+uv run pytest tests/
 
-# Test the health endpoint
 curl http://localhost:8080/health
 
-# List available tools
-curl http://localhost:8080/tools
-
-# Test MCP tool call
-curl -X POST http://localhost:8080 \
+curl -X POST http://localhost:8080/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
@@ -113,45 +104,38 @@ curl -X POST http://localhost:8080 \
 
 ### Google Cloud Platform
 
-The server is designed to run on Google Cloud Run with automatic CI/CD through GitHub Actions.
+The server is deployed on Google Cloud Run with automatic CI/CD through GitHub Actions.
 
-#### Manual Deployment
+#### CI/CD Pipeline
 
-```bash
-# Navigate to deployment scripts
-cd deployment/scripts
+The deployment workflow:
+1. **Build**: Only builds Docker image when `mcp-server/**` files change
+2. **Tag**: Always tags the image with commit SHA for deployment
+3. **Deploy**: Terraform applies infrastructure changes
 
-# Deploy to GCP (requires gcloud CLI setup)
-./deploy.sh your-project-id us-central1
+```yaml
+query-engine:
+  - 'query-engine/**'
+mcp-server:
+  - 'mcp-server/**'
+terraform:
+  - 'deployment/terraform/**'
 ```
 
-#### Terraform Deployment
+#### Environment Configuration
 
-```bash
-# Navigate to Terraform configuration
-cd deployment/terraform
-
-# Copy and configure variables
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your project details
-
-# Initialize and apply
-terraform init
-terraform plan
-terraform apply
-```
+Cloud Run environment variables (configured via Terraform):
+- `QUERY_ENGINE_ENDPOINT`: Internal query engine service URL
+- `PORT`: Service port (8080)
 
 ### Docker
 
 ```bash
-# Build Docker image
 docker build -t analysis-mcp-server .
 
-# Run container
-docker run -p 8080:8080 -p 50051:50051 \
-  -e MCP_PORT=8080 \
-  -e GRPC_PORT=50051 \
-  -e DATA_DIR=/app/data \
+docker run -p 8080:8080 \
+  -e PORT=8080 \
+  -e QUERY_ENGINE_ENDPOINT=http://query-engine:50051 \
   analysis-mcp-server
 ```
 
@@ -160,59 +144,100 @@ docker run -p 8080:8080 -p 50051:50051 \
 ### HTTP Endpoints
 
 - `GET /health`: Health check endpoint
-- `GET /tools`: List available MCP tools
-- `POST /`: MCP protocol endpoint for tool calls
+- `POST /mcp`: MCP protocol endpoint for tool calls (requires `Accept: application/json, text/event-stream`)
 
-### gRPC Service
+### MCP Protocol
 
-The server also exposes a gRPC service defined in `proto/analysis.proto`:
+All MCP requests follow JSON-RPC 2.0 format:
 
-- `ListDatasets`: Get all available datasets
-- `GetMetadata`: Get metadata for a specific dataset
-- `ExecuteQuery`: Execute SQL queries
-- `HealthCheck`: Service health check
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "tool_name",
+    "arguments": {}
+  }
+}
+```
 
-## Performance
+Responses use Server-Sent Events (SSE) format when applicable:
 
-- **Memory Usage**: Configurable memory limits, default 2GB for Cloud Run
-- **Query Performance**: Optimized with DataFusion's columnar processing
-- **Concurrent Requests**: Supports high concurrency with async Rust
-- **Auto-scaling**: Scales from 1 to 10 instances based on load
+```
+event: message
+data: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"..."}]}}
+```
+
+## Logging
+
+Structured logging with the following fields:
+
+**Request Start**:
+```python
+logger.info("Starting list_datasets request")
+```
+
+**Success**:
+```python
+logger.info(
+    "list_datasets completed successfully",
+    extra={"dataset_count": 10, "elapsed_ms": 250.5}
+)
+```
+
+**Error**:
+```python
+logger.error(
+    "list_datasets failed",
+    extra={"elapsed_ms": 150.2, "error": "Connection timeout"},
+    exc_info=True
+)
+```
 
 ## Security
 
-- **No Authentication Required**: Currently allows unauthenticated access for development
-- **SQL Injection Protection**: Parameterized queries through DataFusion
-- **Resource Limits**: Memory and CPU limits prevent resource exhaustion
-- **Network Security**: Runs in isolated Cloud Run environment
+- **Internal Query Engine**: Query engine is only accessible from within VPC
+- **Service Authentication**: MCP server uses Google Cloud identity tokens to authenticate with query engine
+- **Public MCP Endpoint**: MCP server itself is publicly accessible (no authentication required)
+- **SQL Injection Protection**: All queries are parameterized through the query engine
+
+## Performance
+
+- **Streaming Responses**: Arrow IPC format for efficient data transfer from query engine
+- **Buffered Transfers**: 10MB chunks for large dataset uploads
+- **Auto-scaling**: Scales from 1 to 5 instances based on load
+- **Memory Limits**: 1GB memory, 1 CPU per instance
 
 ## Monitoring
 
-- **Health Checks**: Built-in health endpoints for load balancers
-- **Logging**: Structured logging with configurable levels
-- **Metrics**: Cloud Run automatically provides performance metrics
-- **Error Tracking**: Comprehensive error handling and reporting
+Query engine logs include:
+- Request timing (total elapsed, query execution time)
+- Row/column counts
+- Error details with stack traces
 
-## Migration from Legacy Service
+Example log output:
+```
+INFO:mcp_server.server:Starting execute_query request
+INFO:mcp_server.server:execute_query completed successfully {"dataset_id": "abc123", "row_count": 1000, "column_count": 5, "query_execution_ms": 45, "total_elapsed_ms": 250}
+```
 
-The new MCP server is designed to be a drop-in replacement for the legacy `mcp_reader_service`. The VS Code extension automatically falls back to the legacy service if the new one is unavailable.
+## E2E Testing
 
-### Key Improvements
+End-to-end tests run automatically in CI after deployment:
 
-1. **Performance**: 10x faster query execution with DataFusion
-2. **Reliability**: Better error handling and retry logic
-3. **Scalability**: Auto-scaling cloud deployment
-4. **Maintainability**: Type-safe Rust implementation
-5. **Features**: More datasets and better metadata support
+```bash
+pytest tests/test_e2e.py -v
 
-## Contributing
+export MCP_SERVER_ENDPOINT=https://your-mcp-server.run.app/mcp
+pytest tests/test_e2e.py -v
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+Tests verify:
+- MCP server connectivity
+- Tool invocation (list_datasets, get_metadata)
+- Response format validation
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License

@@ -35,6 +35,13 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "analysis-mcp-server",
+        "label": "Analysis MCP Server",
+        "displayName": "Analysis MCP Server"
+      }
+    ],
     "commands": [
       {
         "command": "analysis-view-playground.openPlayground",
@@ -122,10 +129,10 @@
             }
           }
         },
-        "analysisViewPlayground.mcpServerUrl": {
+        "analysisViewPlayground.analyticsMcpUrl": {
           "type": "string",
-          "default": "http://localhost:8080",
-          "description": "URL of the Analysis MCP server for data queries"
+          "default": "https://analysis-mcp-server-268402011423.us-central1.run.app",
+          "description": "URL of the Analytics MCP server"
         }
       }
     }
