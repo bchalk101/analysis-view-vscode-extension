@@ -302,7 +302,7 @@ def run_server() -> None:
     port = int(os.getenv("PORT", os.getenv("MCP_PORT", "8080")))
     query_engine_endpoint = os.getenv("QUERY_ENGINE_ENDPOINT", "http://localhost:50051")
 
-    logger.info("Starting MCP Server v0.1.0")
+    logger.info("Starting MCP Server")
     logger.info("Configuration loaded:")
     logger.info(f"  MCP Port: {port}")
     logger.info(f"  Query Engine Endpoint: {query_engine_endpoint}")
