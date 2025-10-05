@@ -1,6 +1,8 @@
 import io
 import logging
 
+import google.auth
+import google.auth.transport.requests
 import grpc
 import pyarrow as pa
 
@@ -41,8 +43,16 @@ class QueryEngineClient:
     def channel(self):
         if self._channel is None:
             if self.use_ssl:
-                credentials = grpc.ssl_channel_credentials()
-                self._channel = grpc.aio.secure_channel(self.endpoint, credentials)
+                ssl_credentials = grpc.ssl_channel_credentials()
+                credentials, _ = google.auth.default()
+                auth_req = google.auth.transport.requests.Request()
+                credentials.refresh(auth_req)
+
+                call_credentials = grpc.access_token_call_credentials(credentials.token)
+                composite_credentials = grpc.composite_channel_credentials(
+                    ssl_credentials, call_credentials
+                )
+                self._channel = grpc.aio.secure_channel(self.endpoint, composite_credentials)
             else:
                 self._channel = grpc.aio.insecure_channel(self.endpoint)
         return self._channel

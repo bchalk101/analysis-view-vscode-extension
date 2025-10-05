@@ -14,6 +14,9 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "google-cloud>=0.34.0",
+    "google-cloud-storage>=3.4.0",
+    "pandas>=2.3.3",
     "pytest>=8.0.0",
     "pytest-asyncio>=1.2.0",
     "ruff>=0.1.0",
