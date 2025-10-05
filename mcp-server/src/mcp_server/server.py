@@ -60,7 +60,6 @@ async def list_datasets() -> str:
                     "id": dataset.id,
                     "name": dataset.name,
                     "description": dataset.description,
-                    "category": dataset.category,
                     "file_path": dataset.file_path,
                     "format": dataset.format,
                     "size_bytes": dataset.size_bytes,

@@ -15,10 +15,36 @@ env:
   GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
 
 jobs:
+  check-changes:
+    name: Check Changed Files
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
+    outputs:
+      query-engine: ${{ steps.filter.outputs.query-engine }}
+      mcp-server: ${{ steps.filter.outputs.mcp-server }}
+      terraform: ${{ steps.filter.outputs.terraform }}
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Check file changes
+      uses: dorny/paths-filter@v3
+      id: filter
+      with:
+        filters: |
+          query-engine:
+            - 'query-engine/**'
+          mcp-server:
+            - 'mcp-server/**'
+          terraform:
+            - 'deployment/terraform/**'
+
   build-query-engine:
     name: Build Query Engine Image
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
+    needs: check-changes
+    if: needs.check-changes.outputs.query-engine == 'true'
 
     permissions:
       contents: 'read'
@@ -58,7 +84,8 @@ jobs:
   build-mcp-server:
     name: Build MCP Server Image
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event.workflow_run.conclusion == 'success'
+    needs: check-changes
+    if: needs.check-changes.outputs.mcp-server == 'true'
 
     permissions:
       contents: 'read'
@@ -98,7 +125,8 @@ jobs:
   deploy-infrastructure:
     name: Deploy Infrastructure
     runs-on: ubuntu-latest
-    needs: [build-query-engine, build-mcp-server]
+    needs: [check-changes, build-query-engine, build-mcp-server]
+    if: always() && (needs.build-query-engine.result == 'success' || needs.build-query-engine.result == 'skipped') && (needs.build-mcp-server.result == 'success' || needs.build-mcp-server.result == 'skipped')
 
     permissions:
       contents: 'read'
@@ -106,6 +134,7 @@ jobs:
 
     outputs:
       query_engine_url: ${{ steps.service-urls.outputs.query_engine_url }}
+      mcp_server_url: ${{ steps.service-urls.outputs.mcp_server_url }}
 
     steps:
     - name: Checkout
@@ -156,3 +185,28 @@ jobs:
         echo "mcp_server_url=$MCP_SERVER_URL" >> $GITHUB_OUTPUT
         echo "✅ Query Engine deployed at: $QUERY_ENGINE_URL (private)"
         echo "✅ MCP Server deployed at: $MCP_SERVER_URL (public)"
+
+  e2e-test:
+    name: E2E Test
+    runs-on: ubuntu-latest
+    needs: deploy-infrastructure
+    if: needs.deploy-infrastructure.result == 'success'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install pytest pytest-asyncio httpx
+
+    - name: Run E2E tests
+      env:
+        MCP_SERVER_ENDPOINT: ${{ needs.deploy-infrastructure.outputs.mcp_server_url }}/mcp
+      run: |
+        pytest tests/test_e2e.py -v
