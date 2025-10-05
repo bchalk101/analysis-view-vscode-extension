@@ -27,11 +27,14 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Check file changes
       uses: dorny/paths-filter@v3
       id: filter
       with:
+        base: HEAD~1
         filters: |
           query-engine:
             - 'query-engine/**'

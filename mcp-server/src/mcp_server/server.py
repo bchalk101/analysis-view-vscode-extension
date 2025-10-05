@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 
 from fastmcp import FastMCP
 from pydantic import BaseModel
@@ -51,7 +52,9 @@ service = AnalysisService(query_engine_endpoint)
 @mcp.tool()
 async def list_datasets() -> str:
     """List all available datasets"""
+    start_time = time.time()
     try:
+        logger.info("Starting list_datasets request")
         datasets = await service.query_client.list_datasets()
         datasets_dict = []
         for dataset in datasets:
@@ -69,25 +72,39 @@ async def list_datasets() -> str:
                     "updated_at": dataset.updated_at,
                 }
             )
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "list_datasets completed successfully",
+            extra={"dataset_count": len(datasets_dict), "elapsed_ms": elapsed_ms},
+        )
         return json.dumps(datasets_dict, indent=2)
     except Exception as e:
-        logger.error(f"Failed to list datasets: {e}")
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.error(
+            "list_datasets failed", extra={"elapsed_ms": elapsed_ms, "error": str(e)}, exc_info=True
+        )
         return json.dumps({"error": "Failed to retrieve datasets. Please try again later."})
 
 
 @mcp.tool()
 async def get_metadata(params: GetMetadataRequest) -> str:
     """Get metadata for a specific dataset"""
+    start_time = time.time()
     try:
+        logger.info("Starting get_metadata request", extra={"dataset_id": params.dataset_id})
         metadata = await service.query_client.get_metadata(params.dataset_id)
         if not metadata:
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.warning(
+                "get_metadata dataset not found",
+                extra={"dataset_id": params.dataset_id, "elapsed_ms": elapsed_ms},
+            )
             return json.dumps({"error": f"Dataset not found: {params.dataset_id}"})
 
         metadata_dict = {
             "id": metadata.id,
             "name": metadata.name,
             "description": metadata.description,
-            "category": metadata.category,
             "row_count": metadata.row_count,
             "size_bytes": metadata.size_bytes,
             "format": metadata.format,
@@ -106,16 +123,36 @@ async def get_metadata(params: GetMetadataRequest) -> str:
             ],
             "statistics": dict(metadata.statistics),
         }
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "get_metadata completed successfully",
+            extra={
+                "dataset_id": params.dataset_id,
+                "column_count": len(metadata.columns),
+                "row_count": metadata.row_count,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
         return json.dumps(metadata_dict, indent=2)
     except Exception as e:
-        logger.error(f"Failed to get metadata for {params.dataset_id}: {e}")
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.error(
+            "get_metadata failed",
+            extra={"dataset_id": params.dataset_id, "elapsed_ms": elapsed_ms, "error": str(e)},
+            exc_info=True,
+        )
         return json.dumps({"error": "Failed to retrieve dataset metadata. Please try again later."})
 
 
 @mcp.tool()
 async def execute_query(params: ExecuteQueryRequest) -> str:
     """Execute a SQL query on a dataset"""
+    start_time = time.time()
     try:
+        logger.info(
+            "Starting execute_query request",
+            extra={"dataset_id": params.dataset_id, "limit": params.limit},
+        )
         result = await service.query_client.execute_query(
             params.dataset_id, params.sql_query, params.limit
         )
@@ -126,9 +163,25 @@ async def execute_query(params: ExecuteQueryRequest) -> str:
             "total_rows": result.total_rows,
             "execution_time_ms": result.execution_time_ms,
         }
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "execute_query completed successfully",
+            extra={
+                "dataset_id": params.dataset_id,
+                "row_count": result.total_rows,
+                "column_count": len(result.column_names),
+                "query_execution_ms": result.execution_time_ms,
+                "total_elapsed_ms": elapsed_ms,
+            },
+        )
         return json.dumps(response, indent=2)
     except Exception as e:
-        logger.error(f"Failed to execute query on {params.dataset_id}: {e}")
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.error(
+            "execute_query failed",
+            extra={"dataset_id": params.dataset_id, "elapsed_ms": elapsed_ms, "error": str(e)},
+            exc_info=True,
+        )
         return json.dumps(
             {"error": "Failed to execute query. Please check your SQL syntax and try again."}
         )
