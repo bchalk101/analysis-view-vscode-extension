@@ -79,68 +79,92 @@ impl DatasetStorage {
         let dest_path = ObjectPath::from(format!("datasets/{}/{}", dataset_id, filename));
 
         info!(
-            "Streaming from source {} to destination {}",
+            "Copying from source {} to destination {}",
             source_object_path, dest_path
         );
 
-        let copy_result = self.store.copy(&source_object_path, &dest_path).await;
+        info!("Using streaming copy with chunked upload");
 
-        match copy_result {
-            Ok(_) => {
-                info!("Successfully streamed dataset using direct copy");
+        let get_result = source_store.get(&source_object_path).await.map_err(|e| {
+            AnalysisError::ConfigError {
+                message: format!("Failed to open source stream {}: {}", source_path, e),
             }
-            Err(_) => {
-                info!("Direct copy not supported, falling back to streaming copy");
+        })?;
 
-                let get_result = source_store.get(&source_object_path).await.map_err(|e| {
-                    AnalysisError::ConfigError {
-                        message: format!("Failed to open source stream {}: {}", source_path, e),
-                    }
+        let source_stream = get_result.into_stream();
+
+        info!("Starting multipart streaming upload to destination");
+
+        let mut multipart =
+            self.store
+                .put_multipart(&dest_path)
+                .await
+                .map_err(|e| AnalysisError::ConfigError {
+                    message: format!("Failed to initiate multipart upload: {}", e),
                 })?;
 
-                let source_stream = get_result.into_stream();
+        let mut total_bytes = 0u64;
+        let mut part_number = 0;
+        let mut buffer = Vec::new();
+        const BUFFER_SIZE: usize = 10 * 1024 * 1024;
 
-                info!("Starting multipart streaming upload to destination");
+        let mut stream = source_stream;
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| AnalysisError::ConfigError {
+                message: format!("Failed to read chunk from source stream: {}", e),
+            })?;
 
-                let mut multipart = self.store.put_multipart(&dest_path).await.map_err(|e| {
-                    AnalysisError::ConfigError {
-                        message: format!("Failed to initiate multipart upload: {}", e),
-                    }
-                })?;
+            buffer.extend_from_slice(&chunk);
+            total_bytes += chunk.len() as u64;
 
-                let mut total_bytes = 0u64;
-                let mut part_number = 0;
-
-                let mut stream = source_stream;
-                while let Some(chunk_result) = stream.next().await {
-                    let chunk = chunk_result.map_err(|e| AnalysisError::ConfigError {
-                        message: format!("Failed to read chunk from source stream: {}", e),
-                    })?;
-
-                    multipart
-                        .put_part(chunk.clone().into())
-                        .await
-                        .map_err(|e| AnalysisError::ConfigError {
-                            message: format!("Failed to upload part {}: {}", part_number, e),
-                        })?;
-
-                    total_bytes += chunk.len() as u64;
-                    part_number += 1;
-                }
-
-                multipart
-                    .complete()
-                    .await
-                    .map_err(|e| AnalysisError::ConfigError {
-                        message: format!("Failed to complete multipart upload: {}", e),
-                    })?;
-
+            if buffer.len() >= BUFFER_SIZE {
                 info!(
-                    "Successfully completed multipart streaming upload of {} bytes",
+                    "Uploading buffered part {} ({} bytes, total {} bytes)",
+                    part_number,
+                    buffer.len(),
                     total_bytes
                 );
+
+                multipart
+                    .put_part(buffer.clone().into())
+                    .await
+                    .map_err(|e| AnalysisError::ConfigError {
+                        message: format!("Failed to upload part {}: {}", part_number, e),
+                    })?;
+
+                buffer.clear();
+                part_number += 1;
             }
         }
+
+        if !buffer.is_empty() {
+            info!(
+                "Uploading final buffered part {} ({} bytes)",
+                part_number,
+                buffer.len()
+            );
+
+            multipart
+                .put_part(buffer.into())
+                .await
+                .map_err(|e| AnalysisError::ConfigError {
+                    message: format!("Failed to upload final part {}: {}", part_number, e),
+                })?;
+
+            part_number += 1;
+        }
+
+        multipart
+            .complete()
+            .await
+            .map_err(|e| AnalysisError::ConfigError {
+                message: format!("Failed to complete multipart upload: {}", e),
+            })?;
+
+        info!(
+            "Successfully completed multipart streaming upload of {} bytes",
+            total_bytes
+        );
 
         let storage_path = format!("gs://{}/{}", self.bucket_name, dest_path);
         info!("Successfully copied dataset to {}", storage_path);
