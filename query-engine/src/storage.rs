@@ -104,7 +104,6 @@ impl DatasetStorage {
                 })?;
 
         let mut total_bytes = 0u64;
-        let mut part_number = 0;
         let mut buffer = Vec::new();
         const BUFFER_SIZE: usize = 10 * 1024 * 1024;
 
@@ -118,40 +117,24 @@ impl DatasetStorage {
             total_bytes += chunk.len() as u64;
 
             if buffer.len() >= BUFFER_SIZE {
-                info!(
-                    "Uploading buffered part {} ({} bytes, total {} bytes)",
-                    part_number,
-                    buffer.len(),
-                    total_bytes
-                );
-
                 multipart
                     .put_part(buffer.clone().into())
                     .await
                     .map_err(|e| AnalysisError::ConfigError {
-                        message: format!("Failed to upload part {}: {}", part_number, e),
+                        message: format!("Failed to upload part {}", e),
                     })?;
 
                 buffer.clear();
-                part_number += 1;
             }
         }
 
         if !buffer.is_empty() {
-            info!(
-                "Uploading final buffered part {} ({} bytes)",
-                part_number,
-                buffer.len()
-            );
-
             multipart
                 .put_part(buffer.into())
                 .await
                 .map_err(|e| AnalysisError::ConfigError {
-                    message: format!("Failed to upload final part {}: {}", part_number, e),
+                    message: format!("Failed to upload final part {}", e),
                 })?;
-
-            part_number += 1;
         }
 
         multipart
