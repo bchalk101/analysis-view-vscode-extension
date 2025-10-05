@@ -5,6 +5,7 @@ import google.auth
 import google.auth.transport.requests
 import grpc
 import pyarrow as pa
+from google.oauth2 import id_token
 
 from .analysis_pb2 import (
     Dataset,
@@ -44,11 +45,11 @@ class QueryEngineClient:
         if self._channel is None:
             if self.use_ssl:
                 ssl_credentials = grpc.ssl_channel_credentials()
-                credentials, _ = google.auth.default()
                 auth_req = google.auth.transport.requests.Request()
-                credentials.refresh(auth_req)
+                target_audience = f"https://{self.endpoint}"
+                token = id_token.fetch_id_token(auth_req, target_audience)
 
-                call_credentials = grpc.access_token_call_credentials(credentials.token)
+                call_credentials = grpc.access_token_call_credentials(token)
                 composite_credentials = grpc.composite_channel_credentials(
                     ssl_credentials, call_credentials
                 )
