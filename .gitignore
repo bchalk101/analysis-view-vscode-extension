@@ -182,3 +182,4 @@ dmypy.json
 # Generated protobuf files
 *_pb2.py
 *_pb2_grpc.py
+scripts/

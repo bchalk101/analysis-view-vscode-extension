@@ -47,20 +47,12 @@ impl AnalysisEngine {
         sql_query: &str,
         limit: Option<i32>,
     ) -> Result<QueryStreamResult, AnalysisError> {
-        let _dataset = self
-            .dataset_manager
-            .get_dataset(dataset_id)
-            .await
-            .ok_or_else(|| AnalysisError::DatasetNotFound {
-                dataset_id: dataset_id.to_string(),
-            })?;
-
         if !self.datafusion.is_dataset_registered(dataset_id).await {
             self.register_dataset_with_datafusion(dataset_id).await?;
         }
 
         self.datafusion
-            .execute_query(dataset_id, sql_query, limit)
+            .execute_query(dataset_id, dataset_id, sql_query, limit)
             .await
     }
 

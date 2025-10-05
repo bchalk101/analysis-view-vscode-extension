@@ -1,7 +1,6 @@
 use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider};
 use datafusion::datasource::file_format::csv::CsvFormat;
-use datafusion::datasource::file_format::json::JsonFormat;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
@@ -102,10 +101,6 @@ impl DataFusionEngine {
                     .with_delimiter(b',');
                 ListingOptions::new(Arc::new(csv_format))
             }
-            "json" => {
-                let json_format = JsonFormat::default();
-                ListingOptions::new(Arc::new(json_format))
-            }
             "parquet" => {
                 let parquet_format = ParquetFormat::default();
                 ListingOptions::new(Arc::new(parquet_format))
@@ -177,16 +172,13 @@ impl DataFusionEngine {
     pub async fn execute_query(
         &self,
         dataset_id: &str,
+        _dataset_name: &str,
         sql_query: &str,
         limit: Option<i32>,
     ) -> Result<QueryStreamResult, AnalysisError> {
         let start_time = std::time::Instant::now();
 
         info!("Executing query on dataset '{}': {}", dataset_id, sql_query);
-
-        let table_provider = self.get_table(dataset_id).await?;
-
-        self.ctx.register_table("base", table_provider)?;
 
         let mut query = sql_query.to_string();
 

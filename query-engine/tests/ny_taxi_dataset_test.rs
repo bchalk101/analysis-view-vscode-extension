@@ -81,9 +81,12 @@ async fn test_basic_flow_registering_and_querying_ny_taxi_dataset() {
     );
 
     // When
-    let aggregation_query = "SELECT AVG(trip_distance) as avg_distance, COUNT(*) as total_trips FROM base WHERE trip_distance > 0 LIMIT 1";
+    let aggregation_query = format!(
+        "SELECT AVG(trip_distance) as avg_distance, COUNT(*) as total_trips FROM \"{}\" WHERE trip_distance > 0 LIMIT 1",
+        dataset_id
+    );
     let query_result = engine
-        .execute_query(&dataset_id, aggregation_query, Some(1))
+        .execute_query(&dataset_id, &aggregation_query, Some(1))
         .await;
 
     // Then
