@@ -5,6 +5,7 @@
   "version": "0.6.0",
   "publisher": "AgenticAnalytics",
   "license": "MIT",
+  "icon": "icon.svg",
   "repository": {
     "type": "git",
     "url": "https://github.com/bchalk101/analysis-view-vscode-extension.git"
