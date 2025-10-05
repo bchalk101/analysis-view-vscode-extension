@@ -65,7 +65,8 @@ impl DataFusionEngine {
                 message: format!("Failed to build DataFusion runtime environment: {}", e),
             })?;
 
-        let session_config = SessionConfig::new();
+        let session_config =
+            SessionConfig::new().with_default_catalog_and_schema("agentic_analytics", "public");
 
         let ctx = SessionContext::new_with_config_rt(session_config, runtime_config.into());
 
