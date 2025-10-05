@@ -15,8 +15,8 @@
     "forceConsistentCasingInFileNames": true,
     "jsx": "react",
     "jsxFactory": "vscpp",
-    "jsxFragmentFactory": "vscppf"
-
+    "jsxFragmentFactory": "vscppf",
+    "types": ["vscode", "node"]
   },
   "exclude": ["node_modules", ".vscode-test", "examples"]
 }
