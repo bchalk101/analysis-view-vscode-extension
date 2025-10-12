@@ -58,3 +58,11 @@ examples/**
 coverage/**
 *.vsix
 icon.svg
+
+.vscode
+node_modules
+out/
+src/
+tsconfig.json
+webpack.config.js
+esbuild.js

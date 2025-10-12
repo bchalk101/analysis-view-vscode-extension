@@ -1583,8 +1583,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
 
                     <div class="input-group" id="analyticsDatasetGroup">
                         <label for="datasetSelect">Dataset</label>
-                        <select id="datasetSelect">
-                            <option value="">Select a dataset...</option>
+                        <select id="datasetSelect" disabled>
+                            <option value="">Loading...</option>
                         </select>
                     </div>
 
@@ -1988,14 +1988,16 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 
                 function generateStory() {
                     const description = document.getElementById('description').value.trim();
-                    const datasetPath = document.getElementById('datasetPath').value.trim();
-                    
+
                     if (!description) {
                         showValidationError('description', 'Please describe what story you want to tell with your data.');
                         return;
                     }
-                    
+
                     const dataSourceType = document.getElementById('dataSourceType').value;
+                    const datasetPath = dataSourceType === 'analytics'
+                        ? document.getElementById('datasetSelect').value.trim()
+                        : document.getElementById('datasetPath').value.trim();
 
                     if (!datasetPath) {
                         if (dataSourceType === 'analytics') {
@@ -2411,6 +2413,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 
                 function populateDatasets(datasets) {
                     const datasetSelect = document.getElementById('datasetSelect');
+
+                    datasetSelect.disabled = false;
 
                     if (!datasets || datasets.length === 0) {
                         datasetSelect.innerHTML = '<option value="">No datasets available</option>';
