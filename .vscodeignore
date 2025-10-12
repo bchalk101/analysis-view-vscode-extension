@@ -1,6 +1,7 @@
 .vscode/**
 .vscode-test/**
 src/**
+out/**
 .gitignore
 .yarnrc
 vsc-extension-quickstart.md
@@ -8,7 +9,6 @@ vsc-extension-quickstart.md
 **/.eslintrc.json
 **/*.map
 **/*.ts
-!out/**/*.js
 
 # Test files
 **/*test.ts
