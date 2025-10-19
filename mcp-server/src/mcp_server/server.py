@@ -315,5 +315,4 @@ def run_server() -> None:
         host="0.0.0.0",
         port=port,
         show_banner=False,
-        stateless_http=True,
     )

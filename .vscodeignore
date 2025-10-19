@@ -65,3 +65,6 @@ src/
 tsconfig.json
 webpack.config.js
 esbuild.js
+.husky
+.pytest_cache/
+docker-compose.yml

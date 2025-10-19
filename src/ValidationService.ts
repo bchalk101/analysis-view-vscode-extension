@@ -13,8 +13,10 @@ export class ErrorReportingService {
         const timestamp = new Date().toISOString();
         const contextStr = context ? ` [${context}]` : '';
         const message = `${timestamp}${contextStr}: ${error.message}\n${error.stack}\n`;
-        
-        this.outputChannel.appendLine(message);
+
+        if (this.outputChannel) {
+            this.outputChannel.appendLine(message);
+        }
         console.error(`Analysis View Playground${contextStr}:`, error);
     }
 
@@ -22,8 +24,10 @@ export class ErrorReportingService {
         const timestamp = new Date().toISOString();
         const contextStr = context ? ` [${context}]` : '';
         const logMessage = `${timestamp}${contextStr}: WARNING - ${message}`;
-        
-        this.outputChannel.appendLine(logMessage);
+
+        if (this.outputChannel) {
+            this.outputChannel.appendLine(logMessage);
+        }
         console.warn(`Analysis View Playground${contextStr}:`, message);
     }
 
@@ -31,13 +35,17 @@ export class ErrorReportingService {
         const timestamp = new Date().toISOString();
         const contextStr = context ? ` [${context}]` : '';
         const logMessage = `${timestamp}${contextStr}: ${message}`;
-        
-        this.outputChannel.appendLine(logMessage);
+
+        if (this.outputChannel) {
+            this.outputChannel.appendLine(logMessage);
+        }
         console.log(`Analysis View Playground${contextStr}:`, message);
     }
 
     static showOutput(): void {
-        this.outputChannel.show();
+        if (this.outputChannel) {
+            this.outputChannel.show();
+        }
     }
 }
 

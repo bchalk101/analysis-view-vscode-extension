@@ -57,7 +57,6 @@ Transform your data into compelling stories with AI assistance. This VS Code ext
 For advanced users who want to connect to databases or external data sources:
 - Configure data connections through VS Code settings
 - The extension supports secure data access protocols
-- Use the "Test MCP Service Connection" command to verify connections
 
 ## Examples of What You Can Create
 
@@ -97,7 +96,6 @@ Ask: *"Analyze process performance and identify bottlenecks"*
 ### Getting Help
 
 - Check the VS Code output panel for detailed error messages
-- Use the "Test MCP Service Connection" command to diagnose connection issues
 - Report issues on our GitHub repository
 
 ---

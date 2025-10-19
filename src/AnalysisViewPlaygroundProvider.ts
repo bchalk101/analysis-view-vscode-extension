@@ -32,7 +32,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
 
     public resolveWebviewView(
         webviewView: vscode.WebviewView,
-        _context: vscode.WebviewViewResolveContext,
+        context: vscode.WebviewViewResolveContext,
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
@@ -42,12 +42,27 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             localResourceRoots: [this._extensionUri]
         };
 
+        if (context.state) {
+            this._config = { ...this._config, ...context.state };
+        }
+
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        if (context.state) {
+            webviewView.webview.postMessage({
+                type: 'restoreState',
+                state: context.state
+            });
+        }
 
         webviewView.webview.onDidReceiveMessage((data: WebviewMessage) => {
             switch (data.type) {
                 case 'configUpdate':
                     this._config = { ...this._config, ...data.config };
+                    webviewView.webview.postMessage({
+                        type: 'saveState',
+                        state: this._config
+                    });
                     break;
                 case 'generateStory':
                     this._generateStory(data.description || this._config.description);
@@ -2348,6 +2363,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                             const progressContainer = document.getElementById('progressContainer');
                             progressContainer.classList.remove('visible');
                             break;
+                        case 'saveState':
+                            vscode.setState(message.state);
+                            break;
+                        case 'restoreState':
+                            restoreFormState(message.state);
+                            break;
                     }
                 });
                 
@@ -2428,6 +2449,58 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         option.textContent = \`\${dataset.name} (\${dataset.row_count} rows)\`;
                         datasetSelect.appendChild(option);
                     });
+                }
+
+                function restoreFormState(state) {
+                    if (!state) return;
+
+                    if (state.description) {
+                        const descEl = document.getElementById('description');
+                        if (descEl) descEl.value = state.description;
+                    }
+
+                    if (state.datasetPath) {
+                        const dataSourceType = document.getElementById('dataSourceType').value;
+                        if (dataSourceType === 'analytics') {
+                            const datasetSelect = document.getElementById('datasetSelect');
+                            if (datasetSelect) datasetSelect.value = state.datasetPath;
+                        } else {
+                            const datasetPath = document.getElementById('datasetPath');
+                            if (datasetPath) datasetPath.value = state.datasetPath;
+                        }
+                    }
+
+                    if (state.selectedModel) {
+                        const modelSelect = document.getElementById('modelSelect');
+                        if (modelSelect) {
+                            const options = modelSelect.querySelectorAll('.custom-select-option');
+                            const valueSpan = modelSelect.querySelector('.custom-select-value');
+                            options.forEach(opt => {
+                                if (opt.getAttribute('data-value') === state.selectedModel) {
+                                    opt.classList.add('selected');
+                                    if (valueSpan) valueSpan.textContent = opt.textContent;
+                                } else {
+                                    opt.classList.remove('selected');
+                                }
+                            });
+                        }
+                    }
+
+                    if (state.selectedMcpServer) {
+                        const mcpSelect = document.getElementById('mcpSelect');
+                        if (mcpSelect) {
+                            const options = mcpSelect.querySelectorAll('.custom-select-option');
+                            const valueSpan = mcpSelect.querySelector('.custom-select-value');
+                            options.forEach(opt => {
+                                if (opt.getAttribute('data-value') === state.selectedMcpServer) {
+                                    opt.classList.add('selected');
+                                    if (valueSpan) valueSpan.textContent = opt.textContent;
+                                } else {
+                                    opt.classList.remove('selected');
+                                }
+                            });
+                        }
+                    }
                 }
 
                 function populateMcpServers(servers) {
