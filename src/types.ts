@@ -7,6 +7,7 @@ export interface AnalysisViewConfig {
   selectedModel?: string;
   selectedMcpServer?: string;
   exportedAt?: string;
+  dataSourceType?: string;
 }
 
 export interface ChartData {
@@ -71,6 +72,18 @@ export interface StoryState {
   isStoryMode: boolean;
 }
 
+export interface ConversationHistory {
+  id: string;
+  timestamp: string;
+  description: string;
+  datasetPath: string;
+  dataSourceType?: string;
+  selectedModel?: string;
+  selectedMcpServer?: string;
+  story?: DataStory;
+  chatProgress?: ChatProgressStep[];
+}
+
 export interface CompleteReport {
   metadata: {
     title: string;
@@ -87,7 +100,7 @@ export interface CompleteReport {
 export type ExportFormat = 'json' | 'html' | 'pdf-ready';
 
 export interface WebviewMessage {
-  type: 'configUpdate' | 'generateStory' | 'exportReport' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'autoFixVisualization' | 'listDatasets';
+  type: 'webviewReady' | 'configUpdate' | 'generateStory' | 'exportReport' | 'getAvailableModels' | 'getAvailableMcpServers' | 'toggleChatProgress' | 'clearChatProgress' | 'clearAll' | 'cancelGeneration' | 'navigateStory' | 'autoFixVisualization' | 'listDatasets' | 'showConversationHistory' | 'loadConversation' | 'checkMcpAvailability';
   config?: Partial<AnalysisViewConfig>;
   description?: string;
   data?: any;
@@ -106,4 +119,5 @@ export interface WebviewMessage {
     rowCount: number;
     columnTypes: Record<string, string>;
   };
+  conversationId?: string;
 }

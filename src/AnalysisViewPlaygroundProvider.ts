@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, StoryState, ExportFormat } from './types';
+import { AnalysisViewConfig, ChartData, WebviewMessage, ChatProgressStep, StoryState, ExportFormat, ConversationHistory } from './types';
 import { CopilotIntegration } from './CopilotIntegration';
 import { ReportGenerator } from './ReportGenerator';
 import { McpClient } from './McpClient';
+import { ErrorReportingService } from './ValidationService';
 
 export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'analysisViewConfig';
@@ -15,7 +16,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         sqlQuery: '',
         customJS: '',
         selectedModel: undefined,
-        selectedMcpServer: undefined
+        selectedMcpServer: undefined,
+        dataSourceType: 'file'
     };
     private _copilotIntegration: CopilotIntegration;
     private _currentChatProgress: ChatProgressStep[] = [];
@@ -25,9 +27,13 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         isStoryMode: false
     };
     private _reportGenerator = new ReportGenerator();
+    private _context?: vscode.ExtensionContext;
+    private static readonly HISTORY_KEY = 'conversationHistory';
+    private static readonly MAX_HISTORY_ITEMS = 50;
 
-    constructor(private readonly _extensionUri: vscode.Uri, private readonly _mcpClient: McpClient) {
+    constructor(private readonly _extensionUri: vscode.Uri, private readonly _mcpClient: McpClient, context?: vscode.ExtensionContext) {
         this._copilotIntegration = new CopilotIntegration();
+        this._context = context;
     }
 
     public resolveWebviewView(
@@ -42,21 +48,14 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
             localResourceRoots: [this._extensionUri]
         };
 
-        if (context.state) {
-            this._config = { ...this._config, ...context.state };
-        }
-
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
-
-        if (context.state) {
-            webviewView.webview.postMessage({
-                type: 'restoreState',
-                state: context.state
-            });
-        }
 
         webviewView.webview.onDidReceiveMessage((data: WebviewMessage) => {
             switch (data.type) {
+                case 'webviewReady':
+                    this._sendHistoryCount();
+                    this._checkMcpAvailability();
+                    break;
                 case 'configUpdate':
                     this._config = { ...this._config, ...data.config };
                     webviewView.webview.postMessage({
@@ -119,6 +118,15 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     break;
                 case 'autoFixVisualization':
                     this._handleAutoFixVisualization(data);
+                    break;
+                case 'showConversationHistory':
+                    this._showConversationHistoryPicker();
+                    break;
+                case 'loadConversation':
+                    this._loadConversation(data.conversationId!);
+                    break;
+                case 'checkMcpAvailability':
+                    this._checkMcpAvailability();
                     break;
             }
         });
@@ -241,6 +249,57 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         }
     }
 
+    private async _checkMcpAvailability() {
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const availableTools = vscode.lm ? vscode.lm.tools : [];
+            const hasQueryDatasetTool = availableTools.some(tool =>
+                tool.name.includes('query_dataset') || tool.name.includes('query-dataset')
+            );
+
+            ErrorReportingService.logInfo(`MCP availability check - Total tools: ${availableTools.length}, Has query_dataset: ${hasQueryDatasetTool}`);
+
+            if (!hasQueryDatasetTool) {
+                const toolNames = availableTools.map(t => t.name).join(', ');
+                ErrorReportingService.logInfo(`Analytics MCP tools not available. Available tools: ${toolNames || 'none'}`);
+
+                vscode.window.showWarningMessage(
+                    'Analytics MCP server is not available. The server may not be running or accessible. SQL queries will not be validated. Please check the server URL in settings.',
+                    'Open Settings'
+                ).then(selection => {
+                    if (selection === 'Open Settings') {
+                        vscode.commands.executeCommand('workbench.action.openSettings', 'analysisViewPlayground.analyticsMcpUrl');
+                    }
+                });
+
+                this._view?.webview.postMessage({
+                    type: 'mcpAvailability',
+                    available: false,
+                    message: 'Analytics MCP server not available'
+                });
+            } else {
+                const queryTool = availableTools.find(tool =>
+                    tool.name.includes('query_dataset') || tool.name.includes('query-dataset')
+                );
+                ErrorReportingService.logInfo(`Analytics MCP tools are available. Tool: ${queryTool?.name}`);
+
+                this._view?.webview.postMessage({
+                    type: 'mcpAvailability',
+                    available: true,
+                    message: 'Analytics MCP server is available'
+                });
+            }
+        } catch (error) {
+            ErrorReportingService.logError(error as Error, 'mcp-availability-check');
+            this._view?.webview.postMessage({
+                type: 'mcpAvailability',
+                available: false,
+                message: 'Error checking MCP availability'
+            });
+        }
+    }
+
     private async _generateStory(description: string): Promise<void> {
         this._currentCancellationTokenSource = new vscode.CancellationTokenSource();
 
@@ -304,6 +363,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 status: 'completed',
                 message: 'Data story generated and validated successfully!'
             });
+
+            await this._saveToHistory();
 
             this.openExecutionPanel();
             this._executeCurrentStoryStep();
@@ -445,6 +506,124 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
 
     public async exportCompleteReport() {
         await this._reportGenerator.exportCompleteReport(this._storyState, this._currentChatProgress, 'html', this._config);
+    }
+
+    private async _saveToHistory() {
+        if (!this._context || !this._storyState.currentStory) {
+            return;
+        }
+
+        const history = this._getHistory();
+        const newEntry: ConversationHistory = {
+            id: Date.now().toString(),
+            timestamp: new Date().toISOString(),
+            description: this._config.description,
+            datasetPath: this._config.datasetPath,
+            dataSourceType: this._config.dataSourceType,
+            selectedModel: this._config.selectedModel,
+            selectedMcpServer: this._config.selectedMcpServer,
+            story: this._storyState.currentStory,
+            chatProgress: this._currentChatProgress
+        };
+
+        history.unshift(newEntry);
+
+        if (history.length > AnalysisViewPlaygroundProvider.MAX_HISTORY_ITEMS) {
+            history.splice(AnalysisViewPlaygroundProvider.MAX_HISTORY_ITEMS);
+        }
+
+        await this._context.workspaceState.update(AnalysisViewPlaygroundProvider.HISTORY_KEY, history);
+        this._sendHistoryCount();
+    }
+
+    private _sendHistoryCount() {
+        const history = this._getHistory();
+        this._view?.webview.postMessage({
+            type: 'historyCount',
+            count: history.length
+        });
+    }
+
+    private _getHistory(): ConversationHistory[] {
+        if (!this._context) {
+            return [];
+        }
+        return this._context.workspaceState.get<ConversationHistory[]>(AnalysisViewPlaygroundProvider.HISTORY_KEY, []);
+    }
+
+    private async _showConversationHistoryPicker() {
+        const history = this._getHistory();
+
+        if (history.length === 0) {
+            vscode.window.showInformationMessage('No previous conversations found');
+            return;
+        }
+
+        const items = history.map(item => ({
+            label: new Date(item.timestamp).toLocaleString(),
+            description: item.description.substring(0, 100) + (item.description.length > 100 ? '...' : ''),
+            detail: `Dataset: ${item.datasetPath}`,
+            conversationId: item.id
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Select a previous conversation to restore',
+            matchOnDescription: true,
+            matchOnDetail: true
+        });
+
+        if (selected) {
+            this._loadConversation(selected.conversationId);
+        }
+    }
+
+    private _loadConversation(conversationId: string) {
+        const history = this._getHistory();
+        const conversation = history.find(h => h.id === conversationId);
+
+        if (!conversation) {
+            vscode.window.showErrorMessage('Conversation not found');
+            return;
+        }
+
+        this._config.description = conversation.description;
+        this._config.datasetPath = conversation.datasetPath;
+        this._config.dataSourceType = conversation.dataSourceType;
+        this._config.selectedModel = conversation.selectedModel;
+        this._config.selectedMcpServer = conversation.selectedMcpServer;
+
+        this._storyState = {
+            currentStory: conversation.story,
+            currentStepIndex: 0,
+            isStoryMode: true
+        };
+
+        this._currentChatProgress = conversation.chatProgress || [];
+
+        this._view?.webview.postMessage({
+            type: 'restoreState',
+            state: this._config
+        });
+
+        this._view?.webview.postMessage({
+            type: 'storyGenerated',
+            story: conversation.story,
+            storyState: this._storyState
+        });
+
+        this._view?.webview.postMessage({
+            type: 'chatProgress',
+            chatProgress: this._currentChatProgress
+        });
+
+        if (this._config.dataSourceType === 'analytics') {
+            this._checkMcpAvailability();
+        }
+
+        if (conversation.story) {
+            this.openExecutionPanel();
+            this._executeCurrentStoryStep();
+        }
     }
 
     private _getExecutionHtmlForWebview(_webview: vscode.Webview): string {
@@ -975,6 +1154,60 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     max-width: 100%;
                 }
                 
+                .toolbar {
+                    display: flex;
+                    align-items: center;
+                    justify-content: flex-end;
+                    padding: 4px 8px;
+                    margin-bottom: 8px;
+                    gap: 4px;
+                }
+
+                .toolbar-button {
+                    background: transparent;
+                    border: none;
+                    color: var(--vscode-foreground);
+                    cursor: pointer;
+                    padding: 6px;
+                    border-radius: 4px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: background-color 0.2s;
+                    position: relative;
+                }
+
+                .toolbar-button:hover {
+                    background-color: var(--vscode-toolbar-hoverBackground);
+                }
+
+                .toolbar-button:active {
+                    background-color: var(--vscode-toolbar-activeBackground);
+                }
+
+                .history-badge {
+                    position: absolute;
+                    top: 1px;
+                    right: 1px;
+                    background-color: var(--vscode-badge-background);
+                    color: var(--vscode-badge-foreground);
+                    font-size: 11px;
+                    font-weight: bold;
+                    padding: 2px 5px;
+                    border-radius: 10px;
+                    min-width: 16px;
+                    text-align: center;
+                    line-height: 1.2;
+                    pointer-events: none;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+                }
+
+                .codicon {
+                    font-family: codicon;
+                    font-size: 16px;
+                    line-height: 16px;
+                }
+
                 .section {
                     margin-bottom: 16px;
                     background-color: var(--vscode-editor-background);
@@ -982,7 +1215,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     border-radius: 4px;
                     padding: 12px;
                 }
-                
+
                 .section-header {
                     font-size: 11px;
                     font-weight: 600;
@@ -1585,6 +1818,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
         </head>
         <body>
             <div class="container">
+                <div class="toolbar">
+                    <button class="toolbar-button" id="historyButton" title="View Previous Conversations">
+                        <span class="codicon codicon-history"></span>
+                        <span class="history-badge" id="historyBadge" style="display: none;" role="status" aria-live="polite">0</span>
+                    </button>
+                </div>
                 <div class="section">
                     <div class="section-header">Configuration</div>
                     
@@ -1607,7 +1846,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         <label for="datasetPath">Dataset Path</label>
                         <input type="text" id="datasetPath" placeholder="s3://bucket/path/to/dataset.csv" />
                     </div>
-                    
+
                     <div class="input-group">
                         <label for="description">Data Story Goal</label>
                         <textarea id="description" placeholder="Describe what data story you want to explore, e.g., 'Analyze the distribution and quality of image classifications, show patterns and identify outliers'"></textarea>
@@ -1706,14 +1945,15 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                 
                 function initializeInterface() {
                     if (interfaceInitialized) return;
+                    interfaceInitialized = true;
                     setupEventListeners();
 
-                    const datasetPathEl = document.getElementById('datasetPath');
-                    if (datasetPathEl) {
-                        datasetPathEl.value = '';
+                    const savedState = vscode.getState();
+                    if (savedState) {
+                        restoreFormState(savedState);
                     }
 
-                    interfaceInitialized = true;
+                    vscode.postMessage({ type: 'webviewReady' });
                 }
                 
                 function setupEventListeners() {
@@ -1721,6 +1961,13 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                     const datasetPath = document.getElementById('datasetPath');
                     const datasetSelect = document.getElementById('datasetSelect');
                     const dataSourceType = document.getElementById('dataSourceType');
+                    const historyButton = document.getElementById('historyButton');
+
+                    if (historyButton) {
+                        historyButton.addEventListener('click', () => {
+                            vscode.postMessage({ type: 'showConversationHistory' });
+                        });
+                    }
 
                     if (description) {
                         description.addEventListener('input', updateConfig);
@@ -1768,26 +2015,25 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                                 analyticsGroup.style.display = 'block';
                                 customGroup.style.display = 'none';
 
-                                const datasetSelect = document.getElementById('datasetSelect');
-                                if (datasetSelect && datasetSelect.value) {
-                                    const mcpOptions = mcpSelect.querySelectorAll('.custom-select-option');
-                                    const valueSpan = trigger.querySelector('.custom-select-value');
+                                const mcpOptions = mcpSelect.querySelectorAll('.custom-select-option');
+                                const valueSpan = trigger.querySelector('.custom-select-value');
 
-                                    mcpOptions.forEach(opt => opt.classList.remove('selected'));
+                                mcpOptions.forEach(opt => opt.classList.remove('selected'));
 
-                                    const analyticsMcpOption = Array.from(mcpOptions).find(opt =>
-                                        opt.getAttribute('data-value') === 'analysis-mcp-server'
-                                    );
+                                const analyticsMcpOption = Array.from(mcpOptions).find(opt =>
+                                    opt.getAttribute('data-value') === 'analysis-mcp-server'
+                                );
 
-                                    if (analyticsMcpOption) {
-                                        analyticsMcpOption.classList.add('selected');
-                                        valueSpan.textContent = analyticsMcpOption.textContent;
-                                    }
-
-                                    mcpSelect.style.opacity = '0.6';
-                                    mcpSelect.style.pointerEvents = 'none';
-                                    trigger.setAttribute('disabled', 'true');
+                                if (analyticsMcpOption) {
+                                    analyticsMcpOption.classList.add('selected');
+                                    valueSpan.textContent = analyticsMcpOption.textContent;
                                 }
+
+                                mcpSelect.style.opacity = '0.6';
+                                mcpSelect.style.pointerEvents = 'none';
+                                trigger.setAttribute('disabled', 'true');
+
+                                vscode.postMessage({ type: 'checkMcpAvailability' });
                             } else {
                                 analyticsGroup.style.display = 'none';
                                 customGroup.style.display = 'block';
@@ -1795,6 +2041,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                                 mcpSelect.style.opacity = '1';
                                 mcpSelect.style.pointerEvents = 'auto';
                                 trigger.removeAttribute('disabled');
+
+                                handleMcpAvailability(false, '');
                             }
                             updateConfig();
                         });
@@ -1986,7 +2234,7 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         ? document.getElementById('datasetSelect').value
                         : document.getElementById('datasetPath').value;
 
-                    if (dataSourceType === 'analytics' && datasetPath) {
+                    if (dataSourceType === 'analytics') {
                         selectedMcpServer = 'analysis-mcp-server';
                     }
 
@@ -1994,7 +2242,8 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         description: document.getElementById('description').value,
                         datasetPath: datasetPath,
                         selectedModel: selectedModel || undefined,
-                        selectedMcpServer: selectedMcpServer || 'all'
+                        selectedMcpServer: selectedMcpServer || 'all',
+                        dataSourceType: dataSourceType
                     };
 
                     vscode.postMessage({ type: 'configUpdate', config: config });
@@ -2351,6 +2600,12 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         case 'availableDatasets':
                             populateDatasets(message.datasets);
                             break;
+                        case 'mcpAvailability':
+                            handleMcpAvailability(message.available, message.message);
+                            break;
+                        case 'historyCount':
+                            updateHistoryBadge(message.count);
+                            break;
                         case 'progress':
                             updateProgress(message.status, message.message);
                             break;
@@ -2459,8 +2714,17 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                         if (descEl) descEl.value = state.description;
                     }
 
+                    if (state.dataSourceType) {
+                        const dataSourceTypeEl = document.getElementById('dataSourceType');
+                        if (dataSourceTypeEl) {
+                            dataSourceTypeEl.value = state.dataSourceType;
+                            const event = new Event('change');
+                            dataSourceTypeEl.dispatchEvent(event);
+                        }
+                    }
+
                     if (state.datasetPath) {
-                        const dataSourceType = document.getElementById('dataSourceType').value;
+                        const dataSourceType = state.dataSourceType || 'file';
                         if (dataSourceType === 'analytics') {
                             const datasetSelect = document.getElementById('datasetSelect');
                             if (datasetSelect) datasetSelect.value = state.datasetPath;
@@ -2499,6 +2763,72 @@ export class AnalysisViewPlaygroundProvider implements vscode.WebviewViewProvide
                                     opt.classList.remove('selected');
                                 }
                             });
+                        }
+                    }
+                }
+
+                function updateHistoryBadge(count) {
+                    if (typeof count !== 'number' || count < 0) {
+                        console.warn('Invalid history count:', count);
+                        return;
+                    }
+
+                    const badge = document.getElementById('historyBadge');
+                    if (!badge) {
+                        console.warn('History badge element not found');
+                        return;
+                    }
+
+                    const historyButton = document.getElementById('historyButton');
+
+                    if (count > 0) {
+                        const displayCount = count > 99 ? '99+' : count.toString();
+                        badge.textContent = displayCount;
+                        badge.style.display = 'block';
+                        badge.setAttribute('aria-label', count + ' saved conversation' + (count === 1 ? '' : 's'));
+
+                        if (historyButton) {
+                            historyButton.setAttribute('title',
+                                count === 1 ? 'View 1 saved conversation' : 'View ' + count + ' saved conversations'
+                            );
+                        }
+                    } else {
+                        badge.style.display = 'none';
+                        badge.removeAttribute('aria-label');
+
+                        if (historyButton) {
+                            historyButton.setAttribute('title', 'No saved conversations');
+                        }
+                    }
+                }
+
+                function handleMcpAvailability(available, message) {
+                    const dataSourceType = document.getElementById('dataSourceType');
+                    const existingWarning = document.getElementById('mcpWarning');
+
+                    if (dataSourceType && dataSourceType.value === 'analytics') {
+                        if (!available) {
+                            if (existingWarning) {
+                                existingWarning.remove();
+                            }
+
+                            const warningDiv = document.createElement('div');
+                            warningDiv.id = 'mcpWarning';
+                            warningDiv.style.cssText = 'background-color: #ff6b6b; color: white; padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 12px;';
+                            warningDiv.innerHTML = '<strong>⚠ ' + message + '</strong><br>SQL queries will not be validated. Please ensure Analytics MCP server is installed and connected.';
+
+                            const analyticsGroup = document.getElementById('analyticsDatasetGroup');
+                            if (analyticsGroup) {
+                                analyticsGroup.parentNode.insertBefore(warningDiv, analyticsGroup.nextSibling);
+                            }
+                        } else {
+                            if (existingWarning) {
+                                existingWarning.remove();
+                            }
+                        }
+                    } else {
+                        if (existingWarning) {
+                            existingWarning.remove();
                         }
                     }
                 }

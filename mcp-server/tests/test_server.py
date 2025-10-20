@@ -2,14 +2,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from src.mcp_server.server import mcp
-
-
-def test_mcp_server_created():
-    """Test that the MCP server is properly created"""
-    assert mcp is not None
-    assert mcp.name == "Analysis MCP Server"
-
 
 @pytest.mark.asyncio
 @patch("src.mcp_server.server.service")

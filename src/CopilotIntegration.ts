@@ -602,6 +602,21 @@ export class CopilotIntegration {
     model: vscode.LanguageModelChat,
     onProgress?: (step: ChatProgressStep) => void
   ): Promise<DataStory> {
+    const availableTools = vscode.lm ? vscode.lm.tools : [];
+    const hasQueryDatasetTool = availableTools.some(tool =>
+      tool.name.includes('query_dataset') || tool.name.includes('query-dataset')
+    );
+
+    if (!hasQueryDatasetTool) {
+      this.addProgressStep(chatProgress, {
+        type: 'error',
+        content: 'Analytics MCP server not connected. Skipping SQL validation. Story steps will be used as-is.'
+      }, onProgress);
+      ErrorReportingService.logInfo('No query_dataset tool available, skipping validation');
+      vscode.window.showWarningMessage('Analytics MCP server not connected. SQL queries will not be validated.');
+      return story;
+    }
+
     this.addProgressStep(chatProgress, {
       type: 'user',
       content: `Validating ${story.steps.length} story steps...`
@@ -623,7 +638,7 @@ export class CopilotIntegration {
         this.addProgressStep(chatProgress, {
           type: 'tool_result',
           content: `Step ${i + 1} SQL validation successful`,
-          toolName: 'mcp_reader-servic_query_dataset'
+          toolName: 'query_dataset'
         }, onProgress);
 
         validatedSteps.push(step);
@@ -971,8 +986,20 @@ Please provide the fixed SQL query:`;
   async executeSQLWithMCPReaderService(sqlQuery: string, datasetPath: string, limit: number = 1000): Promise<{ rows: any[], columnNames: string[] }> {
     try {
       ErrorReportingService.logInfo(`Executing SQL with MCP Reader Service. Dataset: ${datasetPath}, SQL Query: ${sqlQuery}`);
+
+      const availableTools = vscode.lm ? vscode.lm.tools : [];
+      const queryDatasetTool = availableTools.find(tool =>
+        tool.name.includes('query_dataset') || tool.name.includes('query-dataset')
+      );
+
+      if (!queryDatasetTool) {
+        throw new Error('No query_dataset tool found. Available tools: ' + availableTools.map(t => t.name).join(', '));
+      }
+
+      ErrorReportingService.logInfo(`Using tool: ${queryDatasetTool.name}`);
+
       const toolResult = await vscode.lm.invokeTool(
-        'mcp_reader-servic_query_dataset',
+        queryDatasetTool.name,
         {
           input: {
             datasets: [

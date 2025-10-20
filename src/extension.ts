@@ -5,31 +5,81 @@ import { McpClient } from './McpClient';
 
 let mcpClient: McpClient;
 
+async function setupGlobalMcpConfig(context: vscode.ExtensionContext) {
+    try {
+        const configuration = vscode.workspace.getConfiguration();
+        const extensionConfig = vscode.workspace.getConfiguration('analysisViewPlayground');
+        const serverUrl = extensionConfig.get<string>('analyticsMcpUrl');
+
+        if (!serverUrl) {
+            ErrorReportingService.logInfo('No Analytics MCP server URL configured. Users can configure their own MCP servers in settings.');
+            return;
+        }
+
+        const mcpServers = configuration.get<any>('mcp.servers', {});
+
+        if (!mcpServers['analysis-mcp-server']) {
+            mcpServers['analysis-mcp-server'] = {
+                type: 'http',
+                url: serverUrl
+            };
+
+            await configuration.update('mcp.servers', mcpServers, vscode.ConfigurationTarget.Global);
+            ErrorReportingService.logInfo(`Added Analytics MCP server to global settings: ${serverUrl}`);
+
+            vscode.window.showInformationMessage(
+                `Analytics MCP Server has been configured at ${serverUrl}. You may need to reload VS Code for changes to take effect.`,
+                'Reload Window',
+                'Test Connection'
+            ).then(selection => {
+                if (selection === 'Reload Window') {
+                    vscode.commands.executeCommand('workbench.action.reloadWindow');
+                } else if (selection === 'Test Connection') {
+                    vscode.commands.executeCommand('analysis-view-playground.testMCPService');
+                }
+            });
+        } else {
+            ErrorReportingService.logInfo('Analytics MCP server already configured in global settings');
+        }
+    } catch (error) {
+        ErrorReportingService.logError(error as Error, 'mcp-global-setup');
+        ErrorReportingService.logInfo('Failed to set up global MCP configuration');
+    }
+}
+
 async function registerMCPServices(context: vscode.ExtensionContext) {
     try {
         mcpClient = new McpClient();
         await mcpClient.start();
 
-        if (vscode.lm && typeof (vscode.lm as any).registerMcpServerDefinitionProvider === 'function') {
-            const config = vscode.workspace.getConfiguration('analysisViewPlayground');
-            const serverUrl = config.get('analyticsMcpUrl', 'https://analysis-mcp-server-268402011423.us-central1.run.app');
+        if (vscode.lm && typeof vscode.lm.registerMcpServerDefinitionProvider === 'function') {
+            const didChangeEmitter = new vscode.EventEmitter<void>();
 
-            const mcpProvider = (vscode.lm as any).registerMcpServerDefinitionProvider('analysis-mcp-server', {
+            const mcpProvider = vscode.lm.registerMcpServerDefinitionProvider('analysis-mcp-server', {
+                onDidChangeMcpServerDefinitions: didChangeEmitter.event,
                 provideMcpServerDefinitions: async () => {
-                    return [{
-                        id: 'analysis-mcp-server',
-                        label: 'Analysis MCP Server',
-                        name: 'Analysis MCP Server',
-                        transport: {
-                            type: 'http',
-                            url: serverUrl
-                        }
-                    }];
+                    const config = vscode.workspace.getConfiguration('analysisViewPlayground');
+                    const serverUrl = config.get('analyticsMcpUrl', 'https://analysis-mcp-server-268402011423.us-central1.run.app');
+
+                    ErrorReportingService.logInfo(`Providing Analytics MCP server definition: ${serverUrl}`);
+
+                    return [
+                        new (vscode as any).McpHttpServerDefinition({
+                            label: 'Analysis MCP Server',
+                            uri: serverUrl as string,
+                            version: '1.0.0'
+                        })
+                    ];
+                },
+                resolveMcpServerDefinition: async (server) => {
+                    ErrorReportingService.logInfo(`Resolving MCP server: ${server.label}`);
+                    return server;
                 }
             });
 
             context.subscriptions.push(mcpProvider);
-            ErrorReportingService.logInfo('MCP server registered successfully');
+            context.subscriptions.push(didChangeEmitter);
+            ErrorReportingService.logInfo('Analytics MCP server definition provider registered successfully');
         } else {
             ErrorReportingService.logInfo('MCP API not available in this VS Code version');
         }
@@ -46,9 +96,10 @@ export async function activate(context: vscode.ExtensionContext) {
         ErrorReportingService.initialize(context);
         ErrorReportingService.logInfo('Analysis View Playground extension is activating...');
 
+        await setupGlobalMcpConfig(context);
         await registerMCPServices(context);
 
-        const playgroundProvider = new AnalysisViewPlaygroundProvider(context.extensionUri, mcpClient);
+        const playgroundProvider = new AnalysisViewPlaygroundProvider(context.extensionUri, mcpClient, context);
 
         context.subscriptions.push(
             vscode.window.registerWebviewViewProvider('analysisViewConfig', playgroundProvider)
@@ -268,7 +319,7 @@ export async function activate(context: vscode.ExtensionContext) {
         PerformanceMonitor.endTimer('extension-activation');
         ErrorReportingService.logInfo('Analysis View Playground extension activated successfully');
 
-        vscode.window.showInformationMessage('Analysis View Playground is ready! Use "Test MCP Service Connection" to check MCP functionality.');
+        vscode.window.showInformationMessage('Analysis View Playground is ready!');
 
         if (process.env.NODE_ENV === 'development') {
             ErrorReportingService.logInfo('Development mode detected, auto-testing MCP service...');
