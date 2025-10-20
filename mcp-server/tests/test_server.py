@@ -2,6 +2,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.mcp_server.query_client import QueryEngineClient
+from src.mcp_server.server import AnalysisService
+
 
 @pytest.mark.asyncio
 @patch("src.mcp_server.server.service")
@@ -12,8 +15,6 @@ async def test_basic_service_functionality(mock_service):
     mock_service.query_client = mock_query_client
 
     # Test that we can create the service without errors
-    from src.mcp_server.server import AnalysisService
-
     service = AnalysisService("http://test:50051")
     assert service.query_engine_endpoint == "http://test:50051"
 
@@ -63,9 +64,6 @@ def test_query_result():
 
 @pytest.mark.asyncio
 async def test_query_engine_client_initialization():
-    """Test QueryEngineClient can be initialized"""
-    from src.mcp_server.query_client import QueryEngineClient
-
     client = QueryEngineClient("http://test:50051")
     assert client.endpoint == "test:50051"
     assert client.use_ssl is False

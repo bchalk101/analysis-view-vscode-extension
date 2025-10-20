@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 import time
 
 from fastmcp import FastMCP
@@ -8,7 +9,11 @@ from pydantic import BaseModel
 
 from .query_client import QueryEngineClient
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
 logger = logging.getLogger(__name__)
 query_engine_endpoint = os.getenv("QUERY_ENGINE_ENDPOINT", "http://localhost:50051")
 
@@ -200,6 +205,7 @@ async def get_metadata(params: GetMetadataRequest) -> str:
     """Get metadata for a specific dataset"""
     start_time = time.time()
     try:
+        logger.info(f"get_metadata called with params: {params.model_dump()}")
         logger.info("Starting get_metadata request", extra={"dataset_id": params.dataset_id})
         metadata = await service.query_client.get_metadata(params.dataset_id)
         if not metadata:
@@ -260,6 +266,8 @@ async def execute_query(params: ExecuteQueryRequest) -> str:
     Example: SELECT * FROM "dataset-id-here" LIMIT 10"""
     start_time = time.time()
     try:
+        logger.info(f"execute_query called with params: {params.model_dump()}")
+        logger.info(f"SQL query: {params.sql_query}")
         logger.info(
             "Starting execute_query request",
             extra={"dataset_id": params.dataset_id, "limit": params.limit},
@@ -310,10 +318,14 @@ def run_server() -> None:
     logger.info(f"  MCP Port: {port}")
     logger.info(f"  Query Engine Endpoint: {query_engine_endpoint}")
 
-    mcp.run(
-        transport="streamable-http",
-        host="0.0.0.0",
-        port=port,
-        show_banner=False,
-        stateless_http=True,
-    )
+    try:
+        mcp.run(
+            transport="streamable-http",
+            host="0.0.0.0",
+            port=port,
+            show_banner=False,
+            stateless_http=True,
+        )
+    except Exception as e:
+        logger.error(f"Server failed to start: {e}", exc_info=True)
+        raise
